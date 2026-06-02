@@ -178,6 +178,11 @@ This writes:
 - Added optional desktop and mobile screenshot capture.
 - Added GitHub Actions CI for `npm ci` and `npm run validate`.
 - Added GitHub Pages deployment workflow preparation.
+- Pushed repository to GitHub.
+- Enabled GitHub Pages deployment through GitHub Actions.
+- Fixed CI formatting / line-ending issue.
+- Fixed Chrome executable path resolution for CI/Linux.
+- Confirmed CI and Deploy workflows pass.
 - Fixed mobile grid overflow by allowing direct `.app-shell` children to shrink with `min-width: 0`.
 - Prepared git version-control baseline and deployment decision document.
 
@@ -199,15 +204,21 @@ Results:
 - Production build completed successfully.
 - Browser walkthrough completed successfully.
 - Git baseline validation completed before the initial commit.
+- Latest confirmed successful GitHub workflow commit: `a87a459`.
 
 ## Deployment Status
 
 - Selected deployment target: GitHub Pages.
-- Deployment workflow prepared: `.github/workflows/deploy-pages.yml`.
+- GitHub repository URL: <https://github.com/justin8120/codex-handoff-manager>
+- GitHub Pages URL: <https://justin8120.github.io/codex-handoff-manager/>
+- CI workflow passed.
+- Deploy GitHub Pages workflow passed.
+- Latest confirmed successful workflow commit: `a87a459`.
+- Deployment workflow: `.github/workflows/deploy-pages.yml`.
 - Vite local builds use `base: "/"`.
 - GitHub Pages deploy builds set `VITE_BASE_PATH=/${{ github.event.repository.name }}/`.
-- The repository has not been pushed to GitHub from this workspace.
-- GitHub Pages has not been enabled in repository settings.
+- The repository has been pushed to GitHub.
+- GitHub Pages deployment through GitHub Actions is enabled and confirmed.
 
 Screenshot capture was also run successfully:
 
@@ -230,5 +241,5 @@ npm run preview
 
 ## Risks / Follow-Ups
 
-- GitHub Pages is selected and prepared, but not yet activated on GitHub.
 - Automated visual diff is not configured.
+- Project documents should stay synchronized after deployment changes.

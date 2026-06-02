@@ -2,7 +2,11 @@
 
 React + TypeScript website for managing a Codex project handoff bundle.
 
-The project is now managed in git with a validated baseline commit. GitHub Pages deployment preparation is complete, but the project has not yet been pushed to GitHub or deployed.
+The project is managed in git, pushed to GitHub, and deployed with GitHub Pages through GitHub Actions.
+
+- GitHub repository: <https://github.com/justin8120/codex-handoff-manager>
+- GitHub Pages: <https://justin8120.github.io/codex-handoff-manager/>
+- Latest confirmed successful workflow commit: `a87a459`
 
 ## Features
 
@@ -24,9 +28,9 @@ The project is now managed in git with a validated baseline commit. GitHub Pages
 
 ## Deployment
 
-GitHub Pages is the selected deployment target. `DEPLOYMENT_OPTIONS.md` compares GitHub Pages, Vercel, and Netlify, and documents the remaining manual GitHub setup steps.
+GitHub Pages is the selected deployment target. `DEPLOYMENT_OPTIONS.md` compares GitHub Pages, Vercel, and Netlify, and records the completed deployment setup.
 
-The deployment workflow is prepared at `.github/workflows/deploy-pages.yml`. It validates the app, builds with a GitHub Pages repository base path, uploads `dist`, and deploys through GitHub Pages Actions. Deployment has not been run yet because the repository has not been pushed to GitHub and Pages has not been enabled.
+The deployment workflow at `.github/workflows/deploy-pages.yml` validates the app, builds with a GitHub Pages repository base path, uploads `dist`, and deploys through GitHub Pages Actions. CI and Deploy GitHub Pages workflows have both passed.
 
 ## Commands
 
@@ -87,6 +91,6 @@ Current UI/content cleanup status:
 - `npm run format:check` runs Prettier formatting verification.
 - `npm run test` runs Vitest + React Testing Library component tests.
 - Git version control is initialized with a validated project baseline.
-- GitHub Pages deployment workflow is prepared, but GitHub repository push and Pages activation are still pending.
+- The repository has been pushed to GitHub and GitHub Pages deployment through GitHub Actions is confirmed.
 
 See `PROJECT_MAP.md` for the current project map and static read-check summary.
