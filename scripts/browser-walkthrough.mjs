@@ -1,12 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -17,8 +9,7 @@ const distRoot = join(root, "dist")
 const appUrl = "http://127.0.0.1:4174"
 const debugUrl = "http://127.0.0.1:9222"
 const runId = `${process.pid}-${Date.now()}`
-const userDataDir = join(tmpdir(), `codex-handoff-walkthrough-chrome-${runId}`)
-const downloadDir = join(tmpdir(), `codex-handoff-walkthrough-downloads-${runId}`)
+const userDataDir = join(tmpdir(), `smart-diet-walkthrough-chrome-${runId}`)
 const shouldCaptureScreenshots = process.argv.includes("--screenshots")
 const screenshotDir = join(root, "artifacts", "browser-walkthrough")
 
@@ -261,16 +252,6 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-async function waitForDownload(name) {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < 10_000) {
-    const files = existsSync(downloadDir) ? readdirSync(downloadDir) : []
-    if (files.includes(name)) return
-    await delay(250)
-  }
-  throw new Error(`${name} was not downloaded`)
-}
-
 async function captureScreenshot(client, sessionId, fileName) {
   mkdirSync(screenshotDir, { recursive: true })
   const { data } = await client.send(
@@ -286,10 +267,8 @@ async function captureScreenshot(client, sessionId, fileName) {
 }
 
 async function main() {
-  removeDirBestEffort(downloadDir)
   if (shouldCaptureScreenshots) removeDirBestEffort(screenshotDir)
   mkdirSync(userDataDir, { recursive: true })
-  mkdirSync(downloadDir, { recursive: true })
 
   assert(
     existsSync(join(distRoot, "index.html")),
@@ -320,15 +299,6 @@ async function main() {
 
     await client.send("Page.enable", {}, sessionId)
     await client.send("Runtime.enable", {}, sessionId)
-    await client.send("Browser.setDownloadBehavior", {
-      behavior: "allow",
-      downloadPath: downloadDir,
-      eventsEnabled: true,
-    })
-    await client.send("Browser.grantPermissions", {
-      origin: appUrl,
-      permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
-    })
     await client.send(
       "Emulation.setDeviceMetricsOverride",
       {
@@ -353,101 +323,91 @@ async function main() {
         metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim())
       }))()`,
     )
-    assert(desktop.title === "Codex 專案交接管理器", "Hero title is not readable")
+    assert(desktop.title === "智慧飲食建議系統", "Hero title is not readable")
     assert(
-      desktop.nav.includes("資料盤點") && desktop.nav.includes("下載"),
+      desktop.nav.includes("餐點推薦") && desktop.nav.includes("查詢紀錄"),
       "Navigation labels are incomplete",
     )
-    assert(desktop.metrics.join(",") === "9,6,67%", "Metrics did not match expected data")
+    assert(desktop.metrics.join(",") === "9,5,4", "Metrics did not match expected meal data")
     if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "desktop.png")
 
-    const searchResult = await evaluate(
+    const recommendation = await evaluate(
       client,
       sessionId,
-      `(() => {
-        const input = document.querySelector('input[type="search"]');
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        setter.call(input, "Runtime");
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        return [...document.querySelectorAll("#inventory tbody tr")].map((row) => row.textContent.trim());
-      })()`,
+      `new Promise((resolve) => {
+        const goal = document.querySelector("#health-goal");
+        goal.value = "減脂";
+        goal.dispatchEvent(new Event("change", { bubbles: true }));
+        document.querySelector("#tag-低卡").click();
+        document.querySelector("#tag-高蛋白").click();
+        document.querySelector(".recommend-button").click();
+        setTimeout(() => resolve({
+          meals: [...document.querySelectorAll(".meal-card h3")].map((heading) => heading.textContent.trim()),
+          history: document.querySelector("#history")?.textContent ?? ""
+        }), 100);
+      })`,
     )
     assert(
-      searchResult.length === 1 && searchResult[0].includes("Runtime 驗證"),
-      "Search did not narrow inventory results",
+      recommendation.meals.includes("鮮蝦酪梨沙拉") &&
+        recommendation.meals.includes("希臘優格莓果杯"),
+      "Recommendation flow did not return low-calorie high-protein meals",
+    )
+    assert(
+      recommendation.history.includes("結果數量：2"),
+      "Query history did not record result count",
     )
 
-    const inventoryFilter = await evaluate(
+    const allergenFilter = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        document.querySelector("#allergen-海鮮").click();
+        document.querySelector(".recommend-button").click();
+        setTimeout(() => resolve([...document.querySelectorAll(".meal-card h3")].map((heading) => heading.textContent.trim())), 100);
+      })`,
+    )
+    assert(
+      !allergenFilter.includes("鮮蝦酪梨沙拉") && allergenFilter.includes("希臘優格莓果杯"),
+      "Allergen exclusion did not remove seafood meals",
+    )
+
+    const emptyResult = await evaluate(
       client,
       sessionId,
       `new Promise((resolve) => {
         const input = document.querySelector('input[type="search"]');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        setter.call(input, "");
+        setter.call(input, "不存在的餐點");
         input.dispatchEvent(new Event("input", { bubbles: true }));
-        [...document.querySelectorAll("#inventory .segmented button")].find((button) => button.textContent.trim() === "待補齊").click();
-        setTimeout(() => resolve([...document.querySelectorAll("#inventory tbody tr")].map((row) => row.textContent.trim())), 100);
-      })`,
-    )
-    assert(inventoryFilter.length === 2, "Inventory status filter did not return two missing items")
-    assert(
-      inventoryFilter.every((row) => row.includes("待補齊")),
-      "Inventory status filter returned the wrong status",
-    )
-
-    const taskFilter = await evaluate(
-      client,
-      sessionId,
-      `new Promise((resolve) => {
-        [...document.querySelectorAll("#tasks .segmented button")].find((button) => button.textContent.trim() === "進行中").click();
-        setTimeout(() => resolve([...document.querySelectorAll("#tasks .task-card")].map((card) => card.textContent.trim())), 100);
+        document.querySelector(".recommend-button").click();
+        setTimeout(() => resolve(document.querySelector(".empty-state")?.textContent ?? ""), 100);
       })`,
     )
     assert(
-      taskFilter.length === 1 && taskFilter[0].includes("互動式瀏覽器走查"),
-      "Task filter did not isolate the in-progress task",
+      emptyResult.includes("未找到符合條件的餐點，請調整搜尋條件"),
+      "Empty recommendation state was not shown",
     )
-
-    const copyResult = await evaluate(
-      client,
-      sessionId,
-      `new Promise((resolve) => {
-        [...document.querySelectorAll("button")].find((button) => button.textContent.includes("複製 Prompt")).click();
-        setTimeout(() => resolve(document.querySelector(".toast")?.textContent ?? ""), 300);
-      })`,
-    )
-    assert(copyResult === "Prompt 已複製", "Copy action did not show confirmation toast")
 
     const anchorResult = await evaluate(
       client,
       sessionId,
       `new Promise((resolve) => {
-        document.querySelector('a[href="#downloads"]').click();
+        document.querySelector('a[href="#history"]').click();
         setTimeout(() => resolve({
           hash: location.hash,
-          heading: document.querySelector("#downloads h2")?.textContent,
-          top: Math.round(document.querySelector("#downloads").getBoundingClientRect().top),
-          bottom: Math.round(document.querySelector("#downloads").getBoundingClientRect().bottom),
+          heading: document.querySelector("#history h2")?.textContent,
+          top: Math.round(document.querySelector("#history").getBoundingClientRect().top),
+          bottom: Math.round(document.querySelector("#history").getBoundingClientRect().bottom),
           height: window.innerHeight
         }), 600);
       })`,
     )
-    assert(anchorResult.hash === "#downloads", "Anchor navigation did not update the hash")
-    assert(anchorResult.heading === "下載交接檔案", "Download section heading was not reached")
+    assert(anchorResult.hash === "#history", "Anchor navigation did not update the hash")
+    assert(anchorResult.heading === "查詢紀錄", "History section heading was not reached")
     assert(
       anchorResult.top < anchorResult.height && anchorResult.bottom > 0,
-      "Download section was not visible after anchor navigation",
+      "History section was not visible after anchor navigation",
     )
-
-    await evaluate(
-      client,
-      sessionId,
-      `(() => {
-        const card = [...document.querySelectorAll(".download-card")].find((item) => item.querySelector("h3")?.textContent === "TASKS.md");
-        card.querySelector("button").click();
-      })()`,
-    )
-    await waitForDownload("TASKS.md")
 
     await client.send(
       "Emulation.setDeviceMetricsOverride",
@@ -469,10 +429,9 @@ async function main() {
         const shellRect = document.querySelector(".app-shell").getBoundingClientRect();
         const sidebarRect = document.querySelector(".sidebar").getBoundingClientRect();
         const navColumns = getComputedStyle(document.querySelector("nav")).gridTemplateColumns;
-        const firstAction = document.querySelector(".hero-actions button");
+        const firstAction = document.querySelector(".hero-actions a");
         const viewportWidth = document.documentElement.clientWidth;
         const overflowing = [...document.body.querySelectorAll("*")]
-          .filter((node) => !node.closest(".table-wrap") && !node.closest(".markdown-preview"))
           .filter((node) => node.scrollWidth > viewportWidth + 1)
           .map((node) => node.className || node.tagName)
           .slice(0, 5);
@@ -511,11 +470,10 @@ async function main() {
     client.close()
 
     console.log("Browser walkthrough passed")
-    console.log("- Search narrowed inventory to Runtime 驗證")
-    console.log("- Inventory and task status filters returned expected items")
-    console.log("- Copy action showed toast confirmation")
-    console.log("- Anchor navigation reached downloads section")
-    console.log("- TASKS.md downloaded successfully")
+    console.log("- Recommendation flow returned low-calorie high-protein meals")
+    console.log("- Allergen exclusion removed seafood meals")
+    console.log("- Empty recommendation state appeared for unmatched search")
+    console.log("- Anchor navigation reached query history")
     console.log("- Mobile layout collapsed without horizontal overflow")
     if (shouldCaptureScreenshots) console.log(`- Screenshots saved to ${screenshotDir}`)
   } finally {
@@ -524,7 +482,6 @@ async function main() {
     await waitForExit(chrome)
     await delay(500)
     removeDirBestEffort(userDataDir)
-    removeDirBestEffort(downloadDir)
   }
 }
 

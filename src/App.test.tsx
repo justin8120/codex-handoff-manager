@@ -4,60 +4,64 @@ import { describe, expect, test } from "vitest"
 import { App } from "./App"
 
 describe("App", () => {
-  test("renders the handoff manager", () => {
+  test("renders the smart diet recommendation system", () => {
     render(<App />)
 
-    expect(screen.getByRole("heading", { name: "Codex 專案交接管理器" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "資料盤點" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "階段任務" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "智慧飲食建議系統" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "餐點推薦" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "查詢紀錄" })).toBeInTheDocument()
   })
 
-  test("filters inventory and tasks with search", async () => {
+  test("filters meals by low-calorie and high-protein tags", async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(screen.getByRole("searchbox"), "Runtime")
+    await user.selectOptions(screen.getByLabelText("健康目標"), "減脂")
+    await user.click(screen.getByLabelText("低卡"))
+    await user.click(screen.getByLabelText("高蛋白"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
 
-    const inventory = screen.getByRole("table")
-    expect(within(inventory).getByText("Runtime 驗證")).toBeInTheDocument()
-    expect(within(inventory).queryByText("專案目的")).not.toBeInTheDocument()
-
-    expect(screen.getByText("完成基礎驗證")).toBeInTheDocument()
-    expect(screen.queryByText("建立 Codex 交接包")).not.toBeInTheDocument()
+    const results = screen.getByLabelText("推薦清單")
+    expect(within(results).getByText("鮮蝦酪梨沙拉")).toBeInTheDocument()
+    expect(within(results).getByText("希臘優格莓果杯")).toBeInTheDocument()
+    expect(within(results).queryByText("牛肉地瓜增肌盤")).not.toBeInTheDocument()
   })
 
-  test("switches inventory and task status filters", async () => {
+  test("excludes meals with selected allergens or forbidden ingredients", async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const inventorySection = screen.getByRole("heading", { name: "資料盤點" }).closest("section")
-    expect(inventorySection).not.toBeNull()
-    await user.click(
-      within(inventorySection as HTMLElement).getByRole("button", { name: "待補齊" }),
-    )
+    await user.selectOptions(screen.getByLabelText("健康目標"), "健康維持")
+    await user.click(screen.getByLabelText("高蛋白"))
+    await user.click(screen.getByLabelText("海鮮"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
 
-    const inventory = screen.getByRole("table")
-    expect(within(inventory).getByText("自動化測試")).toBeInTheDocument()
-    expect(within(inventory).getByText("Lint / Format")).toBeInTheDocument()
-    expect(within(inventory).queryByText("專案目的")).not.toBeInTheDocument()
-
-    const taskSection = screen.getByRole("heading", { name: "階段任務" }).closest("section")
-    expect(taskSection).not.toBeNull()
-    await user.click(within(taskSection as HTMLElement).getByRole("button", { name: "進行中" }))
-
-    expect(screen.getByText("互動式瀏覽器走查")).toBeInTheDocument()
-    expect(screen.queryByText("建立 Codex 交接包")).not.toBeInTheDocument()
+    const results = screen.getByLabelText("推薦清單")
+    expect(within(results).getByText("希臘優格莓果杯")).toBeInTheDocument()
+    expect(within(results).queryByText("鮮蝦酪梨沙拉")).not.toBeInTheDocument()
+    expect(within(results).queryByText("鮭魚糙米餐盒")).not.toBeInTheDocument()
   })
 
-  test("renders download actions", () => {
+  test("shows an empty state when no meals match", async () => {
+    const user = userEvent.setup()
     render(<App />)
 
-    const downloads = screen.getByRole("heading", { name: "下載交接檔案" }).closest("section")
-    expect(downloads).not.toBeNull()
-    expect(within(downloads as HTMLElement).getByText("AGENTS.md")).toBeInTheDocument()
-    expect(within(downloads as HTMLElement).getByText("TASKS.md")).toBeInTheDocument()
-    expect(
-      within(downloads as HTMLElement).getAllByRole("button", { name: "下載" }).length,
-    ).toBeGreaterThan(0)
+    await user.type(screen.getByRole("searchbox"), "不存在的餐點")
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    expect(screen.getByText("未找到符合條件的餐點，請調整搜尋條件")).toBeInTheDocument()
+  })
+
+  test("adds query history after searching", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByLabelText("低卡"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    const history = screen.getByLabelText("最近查詢紀錄")
+    expect(within(history).getByText("目標：均衡飲食")).toBeInTheDocument()
+    expect(within(history).getByText("標籤：低卡")).toBeInTheDocument()
+    expect(within(history).getByText(/結果數量：/)).toBeInTheDocument()
   })
 })

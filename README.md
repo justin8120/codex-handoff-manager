@@ -1,43 +1,32 @@
-# Codex Handoff Manager
+# 智慧飲食建議系統
 
-React + TypeScript website for managing a Codex project handoff bundle.
-
-The project is managed in git, pushed to GitHub, and deployed with GitHub Pages through GitHub Actions.
-
-- GitHub repository: <https://github.com/justin8120/codex-handoff-manager>
-- GitHub Pages: <https://justin8120.github.io/codex-handoff-manager/>
-- Latest confirmed successful workflow commit: `a87a459`
+智慧飲食建議系統是一個 React + TypeScript + Vite 展示網站，可依照使用者的健康目標、飲食標籤、過敏原或禁忌食材推薦餐點。系統目前使用靜態餐點資料，並在每次查詢後顯示最近查詢條件與結果數量。
 
 ## Features
 
-- Home dashboard for the handoff bundle.
-- Data inventory table.
-- Phase-based task list.
-- AGENTS.md preview.
-- Browser-based Markdown downloads.
-- Search and status filters for inventory and tasks.
-- Copy buttons for AGENTS.md and the starter prompt.
-- Readable Traditional Chinese UI copy and downloadable handoff Markdown.
+- 健康目標篩選：減脂、增肌、均衡飲食、健康維持
+- 飲食標籤篩選：低卡、高蛋白、低脂、健康餐、素食
+- 過敏原或禁忌食材排除：花生、牛肉、海鮮、乳製品
+- 關鍵字搜尋餐點、食材與推薦原因
+- 餐點推薦清單顯示熱量、蛋白質、主要食材、標籤與推薦原因
+- 查無結果時顯示清楚提示
+- 最近查詢紀錄顯示查詢條件與結果數量
+- 響應式版面支援桌面與手機瀏覽
 
-## Stack
+## Tech Stack
 
-- React
-- TypeScript
-- Vite
-- lucide-react
+- React + TypeScript + Vite
+- ESLint
+- Prettier
+- Vitest + React Testing Library
+- Browser walkthrough script for production build checks
+- GitHub Actions CI
+- GitHub Pages deployment through GitHub Actions
 
-## Deployment
-
-GitHub Pages is the selected deployment target. `DEPLOYMENT_OPTIONS.md` compares GitHub Pages, Vercel, and Netlify, and records the completed deployment setup.
-
-The deployment workflow at `.github/workflows/deploy-pages.yml` validates the app, builds with a GitHub Pages repository base path, uploads `dist`, and deploys through GitHub Pages Actions. CI and Deploy GitHub Pages workflows have both passed.
-
-## Commands
+## Scripts
 
 ```bash
-npm install
 npm run dev
-npm run check:content
 npm run format
 npm run format:check
 npm run lint
@@ -46,51 +35,27 @@ npm run test
 npm run test:watch
 npm run build
 npm run test:browser
-npm run capture:screenshots
-npm run validate
-npm run preview
-```
-
-## Environment requirements
-
-- Node.js
-- npm
-
-Install Node.js/npm before running project commands. After the environment is ready, run:
-
-```bash
-npm install
 npm run validate
 ```
 
-## Current validation status
+`npm run validate` 會依序執行 content check、Prettier check、lint、typecheck、unit/component tests、production build 與 browser walkthrough。
 
-Current validation completed with Node.js `v24.16.0` and npm `11.13.0`:
+## Deployment
 
-```bash
-npm install
-npm run validate
-```
+- GitHub repository: https://github.com/justin8120/codex-handoff-manager
+- GitHub Pages URL: https://justin8120.github.io/codex-handoff-manager/
+- CI workflow: passed
+- Deploy GitHub Pages workflow: passed
 
-The production build completed successfully. Local runtime verification was also completed:
+部署平台目前使用 GitHub Pages。Vite base 透過 `GITHUB_REPOSITORY` 支援 repository page 路徑，避免影響本機 build。
 
-- `npm run dev -- --host 127.0.0.1 --port 5173` returned HTTP 200 for the app shell.
-- `npm run preview -- --host 127.0.0.1 --port 4173` returned HTTP 200 for the production build.
-- `npm run test:browser` completed a production browser walkthrough with Chrome headless.
-- `npm run capture:screenshots` can save desktop and mobile walkthrough screenshots under `artifacts/browser-walkthrough/`.
-- `npm run validate` now runs the content check, Prettier check, ESLint, typecheck, unit/component tests, production build, and browser walkthrough.
+## Current Status
 
-Current UI/content cleanup status:
+- 已將網站主題轉換為智慧飲食建議系統
+- 已保留 React + TypeScript + Vite、ESLint、Prettier、Vitest、GitHub Actions 與 GitHub Pages 架構
+- 已更新 unit/component tests 與 browser walkthrough 以覆蓋推薦流程
 
-- User-facing UI copy, filter statuses, task details, and generated Markdown downloads have been rewritten into readable Traditional Chinese.
-- A source scan of readable project files, including `codex_ready_context_bundle_v2/`, found no obvious mojibake fragments after cleanup.
-- Automated browser interaction testing now covers search, status filters, copy confirmation, download, anchor navigation, and mobile layout.
-- `npm run check:content` guards the readable project files against obvious mojibake regressions.
-- `npm run capture:screenshots` has been used to generate desktop and mobile reference screenshots in `artifacts/browser-walkthrough/`.
-- `npm run lint` runs ESLint with TypeScript and React Hooks rules.
-- `npm run format:check` runs Prettier formatting verification.
-- `npm run test` runs Vitest + React Testing Library component tests.
-- Git version control is initialized with a validated project baseline.
-- The repository has been pushed to GitHub and GitHub Pages deployment through GitHub Actions is confirmed.
+## Risks / Follow-Ups
 
-See `PROJECT_MAP.md` for the current project map and static read-check summary.
+- automated visual diff is not configured
+- project documents should stay synchronized after deployment changes
