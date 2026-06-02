@@ -2,7 +2,7 @@
 
 React + TypeScript website for managing a Codex project handoff bundle.
 
-The project is now managed in git with a validated baseline commit. Deployment has not been configured yet; see `DEPLOYMENT_OPTIONS.md` for the current recommendation.
+The project is now managed in git with a validated baseline commit. GitHub Pages deployment preparation is complete, but the project has not yet been pushed to GitHub or deployed.
 
 ## Features
 
@@ -24,7 +24,9 @@ The project is now managed in git with a validated baseline commit. Deployment h
 
 ## Deployment
 
-No deployment platform has been selected yet. `DEPLOYMENT_OPTIONS.md` compares GitHub Pages, Vercel, and Netlify. The current recommendation is GitHub Pages because this is a static Vite handoff app and GitHub Actions CI is already configured.
+GitHub Pages is the selected deployment target. `DEPLOYMENT_OPTIONS.md` compares GitHub Pages, Vercel, and Netlify, and documents the remaining manual GitHub setup steps.
+
+The deployment workflow is prepared at `.github/workflows/deploy-pages.yml`. It validates the app, builds with a GitHub Pages repository base path, uploads `dist`, and deploys through GitHub Pages Actions. Deployment has not been run yet because the repository has not been pushed to GitHub and Pages has not been enabled.
 
 ## Commands
 
@@ -85,5 +87,6 @@ Current UI/content cleanup status:
 - `npm run format:check` runs Prettier formatting verification.
 - `npm run test` runs Vitest + React Testing Library component tests.
 - Git version control is initialized with a validated project baseline.
+- GitHub Pages deployment workflow is prepared, but GitHub repository push and Pages activation are still pending.
 
 See `PROJECT_MAP.md` for the current project map and static read-check summary.

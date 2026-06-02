@@ -23,6 +23,7 @@ This repository contains a React + TypeScript website for managing a Codex proje
 |-- .github/
 |   `-- workflows/
 |       `-- ci.yml
+|       `-- deploy-pages.yml
 |-- .gitignore
 |-- .prettierignore
 |-- .prettierrc
@@ -77,6 +78,8 @@ artifacts/browser-walkthrough/
 - `.prettierrc`: Prettier formatting configuration.
 - `.prettierignore`: Paths skipped by Prettier.
 - `.github/workflows/ci.yml`: GitHub Actions workflow that runs `npm ci` and `npm run validate` on push and pull request.
+- `.github/workflows/deploy-pages.yml`: GitHub Pages workflow that validates, builds with a repository-page base path, uploads `dist`, and deploys Pages.
+- `DEPLOYMENT_OPTIONS.md`: Selected GitHub Pages deployment plan and remaining manual setup steps.
 - `src/main.tsx`: React application mount point.
 - `src/App.tsx`: Main UI, readable Traditional Chinese navigation, filtering, copy, preview, and download interactions.
 - `src/App.test.tsx`: Vitest + React Testing Library component tests.
@@ -174,6 +177,7 @@ This writes:
 - Added Chrome headless browser walkthrough coverage.
 - Added optional desktop and mobile screenshot capture.
 - Added GitHub Actions CI for `npm ci` and `npm run validate`.
+- Added GitHub Pages deployment workflow preparation.
 - Fixed mobile grid overflow by allowing direct `.app-shell` children to shrink with `min-width: 0`.
 - Prepared git version-control baseline and deployment decision document.
 
@@ -196,6 +200,15 @@ Results:
 - Browser walkthrough completed successfully.
 - Git baseline validation completed before the initial commit.
 
+## Deployment Status
+
+- Selected deployment target: GitHub Pages.
+- Deployment workflow prepared: `.github/workflows/deploy-pages.yml`.
+- Vite local builds use `base: "/"`.
+- GitHub Pages deploy builds set `VITE_BASE_PATH=/${{ github.event.repository.name }}/`.
+- The repository has not been pushed to GitHub from this workspace.
+- GitHub Pages has not been enabled in repository settings.
+
 Screenshot capture was also run successfully:
 
 ```bash
@@ -217,5 +230,5 @@ npm run preview
 
 ## Risks / Follow-Ups
 
-- Deployment target is not finalized. `DEPLOYMENT_OPTIONS.md` recommends GitHub Pages, pending user confirmation.
+- GitHub Pages is selected and prepared, but not yet activated on GitHub.
 - Automated visual diff is not configured.

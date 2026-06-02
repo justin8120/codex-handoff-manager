@@ -14,6 +14,7 @@ const filesToCheck = [
   "vite.config.ts",
   "tsconfig.app.json",
   ".github/workflows/ci.yml",
+  ".github/workflows/deploy-pages.yml",
   "src/App.tsx",
   "src/App.test.tsx",
   "src/handoffData.ts",
