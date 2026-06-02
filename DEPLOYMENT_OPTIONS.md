@@ -12,7 +12,7 @@ The project is configured to deploy the 智慧飲食建議系統 site through Gi
 
 ## GitHub Pages
 
-GitHub Pages is the current best fit because the system is a static React + Vite展示網站 and the repository already uses GitHub Actions. It keeps CI and deployment in one place and works well for school project demos.
+GitHub Pages remains the current best fit because the system is a static React + Vite展示網站 and the repository already uses GitHub Actions. It keeps validation and deployment in one place and works well for a school project demo.
 
 Repository pages use a path like:
 
@@ -34,11 +34,11 @@ deploy to GitHub Pages
 
 ## Vercel
 
-Vercel also supports Vite apps and provides fast preview deployments. It is useful when branch previews, serverless functions, or team preview URLs are required. Those needs are not required for the current static展示網站.
+Vercel supports Vite apps and fast preview deployments. It is useful when branch previews, serverless functions, or team preview URLs are required. Those needs are not required for the current static展示網站.
 
 ## Netlify
 
-Netlify supports Vite static builds and simple drag-and-drop or Git-based deploys. It is a strong alternative if form handling, redirect rules, or Netlify-specific preview workflows are needed. The current project does not require those features.
+Netlify supports Vite static builds and simple Git-based deploys. It is a strong alternative if form handling, redirect rules, or Netlify-specific preview workflows are needed. The current project does not require those features.
 
 ## Risks / Follow-Ups
 

@@ -1,17 +1,18 @@
 # 智慧飲食建議系統
 
-智慧飲食建議系統是一個 React + TypeScript + Vite 展示網站，可依照使用者的健康目標、飲食標籤、過敏原或禁忌食材推薦餐點。系統目前使用靜態餐點資料，並在每次查詢後顯示最近查詢條件與結果數量。
+智慧飲食建議系統是一個 React + TypeScript + Vite 展示網站。使用者可以依照健康目標、飲食標籤、關鍵字，以及過敏原或禁忌食材篩選餐點，系統會顯示推薦清單與推薦原因。
 
 ## Features
 
-- 健康目標篩選：減脂、增肌、均衡飲食、健康維持
-- 飲食標籤篩選：低卡、高蛋白、低脂、健康餐、素食
+- 健康目標：減脂、增肌、均衡飲食、健康維持
+- 飲食標籤：低卡、高蛋白、低脂、健康餐、素食
 - 過敏原或禁忌食材排除：花生、牛肉、海鮮、乳製品
-- 關鍵字搜尋餐點、食材與推薦原因
-- 餐點推薦清單顯示熱量、蛋白質、主要食材、標籤與推薦原因
-- 查無結果時顯示清楚提示
-- 最近查詢紀錄顯示查詢條件與結果數量
-- 響應式版面支援桌面與手機瀏覽
+- 關鍵字搜尋，例如搜尋「茶葉蛋」可找到資料中的茶葉蛋
+- 推薦結果區預設顯示可推薦餐點，查詢後顯示符合條件的餐點
+- 餐點資料區完整顯示 9 筆資料，包含餐點名稱、類型、熱量、蛋白質、標籤、主要食材、禁忌食材與推薦原因
+- 查無結果時顯示「未找到符合條件的餐點，請調整搜尋條件」
+- 查詢紀錄顯示最近條件與結果數量
+- 響應式版面支援桌面與手機
 
 ## Tech Stack
 
@@ -47,13 +48,7 @@ npm run validate
 - CI workflow: passed
 - Deploy GitHub Pages workflow: passed
 
-部署平台目前使用 GitHub Pages。Vite base 透過 `GITHUB_REPOSITORY` 支援 repository page 路徑，避免影響本機 build。
-
-## Current Status
-
-- 已將網站主題轉換為智慧飲食建議系統
-- 已保留 React + TypeScript + Vite、ESLint、Prettier、Vitest、GitHub Actions 與 GitHub Pages 架構
-- 已更新 unit/component tests 與 browser walkthrough 以覆蓋推薦流程
+目前部署平台為 GitHub Pages。Vite production base 會在 GitHub Actions 中依 `GITHUB_REPOSITORY` 設定 repository page 路徑，本機開發與本機 build 不受影響。
 
 ## Risks / Follow-Ups
 

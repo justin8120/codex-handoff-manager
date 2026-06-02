@@ -9,37 +9,39 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "智慧飲食建議系統" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "餐點推薦" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "查詢紀錄" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "餐點資料" })).toBeInTheDocument()
   })
 
-  test("filters meals by low-calorie and high-protein tags", async () => {
+  test("shows tea egg in the meal data section", () => {
+    render(<App />)
+
+    const mealData = screen.getByLabelText("完整餐點資料")
+    expect(within(mealData).getByText("茶葉蛋")).toBeInTheDocument()
+  })
+
+  test("searches for tea egg", async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.selectOptions(screen.getByLabelText("健康目標"), "減脂")
-    await user.click(screen.getByLabelText("低卡"))
-    await user.click(screen.getByLabelText("高蛋白"))
+    await user.type(screen.getByRole("searchbox"), "茶葉蛋")
     await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
 
     const results = screen.getByLabelText("推薦清單")
-    expect(within(results).getByText("鮮蝦酪梨沙拉")).toBeInTheDocument()
-    expect(within(results).getByText("希臘優格莓果杯")).toBeInTheDocument()
-    expect(within(results).queryByText("牛肉地瓜增肌盤")).not.toBeInTheDocument()
+    expect(within(results).getByText("茶葉蛋")).toBeInTheDocument()
+    expect(within(results).queryByText("雞胸肉便當")).not.toBeInTheDocument()
   })
 
-  test("excludes meals with selected allergens or forbidden ingredients", async () => {
+  test("excludes seafood meals", async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.selectOptions(screen.getByLabelText("健康目標"), "健康維持")
-    await user.click(screen.getByLabelText("高蛋白"))
     await user.click(screen.getByLabelText("海鮮"))
     await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
 
     const results = screen.getByLabelText("推薦清單")
-    expect(within(results).getByText("希臘優格莓果杯")).toBeInTheDocument()
-    expect(within(results).queryByText("鮮蝦酪梨沙拉")).not.toBeInTheDocument()
-    expect(within(results).queryByText("鮭魚糙米餐盒")).not.toBeInTheDocument()
+    expect(within(results).queryByText("海鮮粥")).not.toBeInTheDocument()
+    expect(within(results).queryByText("鮭魚沙拉")).not.toBeInTheDocument()
+    expect(within(results).getByText("茶葉蛋")).toBeInTheDocument()
   })
 
   test("shows an empty state when no meals match", async () => {

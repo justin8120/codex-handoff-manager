@@ -17,19 +17,12 @@ const filesToCheck = [
   ".github/workflows/deploy-pages.yml",
   "src/App.tsx",
   "src/App.test.tsx",
-  "src/handoffData.ts",
+  "src/mealData.ts",
   "src/main.tsx",
   "src/styles.css",
   "src/test/setup.ts",
   "scripts/browser-walkthrough.mjs",
   "scripts/check-content.mjs",
-  "codex_ready_context_bundle_v2/README.md",
-  "codex_ready_context_bundle_v2/AGENTS.md",
-  "codex_ready_context_bundle_v2/PROJECT_CONTEXT.md",
-  "codex_ready_context_bundle_v2/DATA_INVENTORY.md",
-  "codex_ready_context_bundle_v2/TASKS.md",
-  "codex_ready_context_bundle_v2/code_review.md",
-  "codex_ready_context_bundle_v2/PROMPT_FOR_CODEX.md",
 ]
 
 const mojibakeTokens = [

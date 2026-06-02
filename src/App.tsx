@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react"
-import { Apple, History, Search, ShieldCheck, SlidersHorizontal, Utensils } from "lucide-react"
+import {
+  Apple,
+  Database,
+  History,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Utensils,
+} from "lucide-react"
 import {
   allergens,
   dietTags,
@@ -8,7 +16,8 @@ import {
   type Allergen,
   type DietTag,
   type HealthGoal,
-} from "./handoffData"
+  type Meal,
+} from "./mealData"
 
 type QueryRecord = {
   goal: HealthGoal
@@ -26,6 +35,49 @@ function toggleValue<T>(values: T[], value: T) {
 
 function formatList(values: string[]) {
   return values.length > 0 ? values.join("、") : "未指定"
+}
+
+function MealCard({ meal }: { meal: Meal }) {
+  return (
+    <article className="meal-card">
+      <div className="meal-card-header">
+        <div>
+          <p className="meal-type">{meal.type}</p>
+          <h3>{meal.name}</h3>
+        </div>
+        <span>{meal.calories} kcal</span>
+      </div>
+      <div className="meal-facts">
+        <div>
+          <span>蛋白質</span>
+          <strong>{meal.protein}g</strong>
+        </div>
+        <div>
+          <span>適合目標</span>
+          <strong>{meal.goals.join(" / ")}</strong>
+        </div>
+      </div>
+      <div className="tag-list" aria-label={`${meal.name} 飲食標籤`}>
+        {meal.tags.map((tag) => (
+          <span className="tag" key={tag}>
+            {tag}
+          </span>
+        ))}
+      </div>
+      <p className="ingredients">
+        <strong>主要食材：</strong>
+        {meal.ingredients.join("、")}
+      </p>
+      <p className="ingredients">
+        <strong>過敏原 / 禁忌食材：</strong>
+        {formatList(meal.allergens)}
+      </p>
+      <p className="reason">
+        <strong>推薦原因：</strong>
+        {meal.reason}
+      </p>
+    </article>
+  )
 }
 
 export function App() {
@@ -48,7 +100,7 @@ export function App() {
         )
         const matchesKeyword =
           normalizedKeyword.length === 0 ||
-          [meal.name, meal.type, meal.reason, ...meal.tags, ...meal.ingredients]
+          [meal.name, meal.type, meal.reason, ...meal.tags, ...meal.ingredients, ...meal.allergens]
             .join(" ")
             .toLowerCase()
             .includes(normalizedKeyword)
@@ -101,6 +153,10 @@ export function App() {
             <ShieldCheck size={18} aria-hidden="true" />
             推薦結果
           </a>
+          <a href="#meal-data">
+            <Database size={18} aria-hidden="true" />
+            餐點資料
+          </a>
           <a href="#history">
             <History size={18} aria-hidden="true" />
             查詢紀錄
@@ -113,21 +169,21 @@ export function App() {
           <div className="eyebrow">Smart Diet Recommendation System</div>
           <h1>智慧飲食建議系統</h1>
           <p>
-            本系統可依照使用者的健康目標、飲食偏好或過敏原與禁忌食材，從靜態餐點資料中推薦合適餐點，
-            並說明每道餐點被推薦的原因。
+            本系統可依照使用者的健康目標、飲食偏好、搜尋關鍵字，以及過敏原或禁忌食材，
+            從餐點資料中推薦合適餐點並說明推薦原因。
           </p>
           <div className="hero-actions">
             <a className="primary-action" href="#recommendation">
               開始推薦
             </a>
-            <a href="#results">查看餐點資料</a>
+            <a href="#meal-data">查看餐點資料</a>
           </div>
         </section>
 
         <section className="metrics" aria-label="餐點資料概況">
           <div>
             <span>{meals.length}</span>
-            <p>筆靜態餐點資料</p>
+            <p>筆餐點資料</p>
           </div>
           <div>
             <span>{dietTags.length}</span>
@@ -231,46 +287,33 @@ export function App() {
             </p>
           </div>
 
+          {!hasSearched ? (
+            <p className="empty-state">請選擇條件後開始推薦，下方先顯示所有可推薦餐點。</p>
+          ) : null}
+
           {hasSearched && recommendedMeals.length === 0 ? (
             <p className="empty-state">未找到符合條件的餐點，請調整搜尋條件</p>
           ) : null}
 
           <div className="meal-grid" aria-label="推薦清單">
             {displayedMeals.map((meal) => (
-              <article className="meal-card" key={meal.id}>
-                <div className="meal-card-header">
-                  <div>
-                    <p className="meal-type">{meal.type}</p>
-                    <h3>{meal.name}</h3>
-                  </div>
-                  <span>{meal.calories} kcal</span>
-                </div>
-                <div className="meal-facts">
-                  <div>
-                    <span>蛋白質</span>
-                    <strong>{meal.protein}g</strong>
-                  </div>
-                  <div>
-                    <span>適合目標</span>
-                    <strong>{meal.goals.join(" / ")}</strong>
-                  </div>
-                </div>
-                <div className="tag-list">
-                  {meal.tags.map((tag) => (
-                    <span className="tag" key={tag}>
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <p className="ingredients">
-                  <strong>主要食材：</strong>
-                  {meal.ingredients.join("、")}
-                </p>
-                <p className="reason">
-                  <strong>推薦原因：</strong>
-                  {meal.reason}
-                </p>
-              </article>
+              <MealCard meal={meal} key={meal.id} />
+            ))}
+          </div>
+        </section>
+
+        <section className="section" id="meal-data">
+          <div className="section-heading">
+            <div>
+              <div className="eyebrow">Meal Data</div>
+              <h2>餐點資料</h2>
+            </div>
+            <p>完整列出目前系統用來推薦的餐點資料，包含營養資訊、飲食標籤、主要食材與禁忌食材。</p>
+          </div>
+
+          <div className="meal-data-grid" aria-label="完整餐點資料">
+            {meals.map((meal) => (
+              <MealCard meal={meal} key={meal.id} />
             ))}
           </div>
         </section>

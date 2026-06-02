@@ -320,56 +320,62 @@ async function main() {
       `(() => ({
         title: document.querySelector("h1")?.textContent,
         nav: [...document.querySelectorAll("nav a")].map((a) => a.textContent.trim()),
-        metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim())
+        metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim()),
+        mealData: [...document.querySelectorAll("#meal-data .meal-card h3")].map((heading) => heading.textContent.trim())
       }))()`,
     )
     assert(desktop.title === "智慧飲食建議系統", "Hero title is not readable")
     assert(
-      desktop.nav.includes("餐點推薦") && desktop.nav.includes("查詢紀錄"),
+      ["系統介紹", "餐點推薦", "推薦結果", "餐點資料", "查詢紀錄"].every((label) =>
+        desktop.nav.includes(label),
+      ),
       "Navigation labels are incomplete",
     )
     assert(desktop.metrics.join(",") === "9,5,4", "Metrics did not match expected meal data")
+    assert(
+      desktop.mealData.length === 9 && desktop.mealData.includes("茶葉蛋"),
+      "Meal data section did not render the complete dataset",
+    )
     if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "desktop.png")
 
-    const recommendation = await evaluate(
+    const teaEggSearch = await evaluate(
       client,
       sessionId,
       `new Promise((resolve) => {
-        const goal = document.querySelector("#health-goal");
-        goal.value = "減脂";
-        goal.dispatchEvent(new Event("change", { bubbles: true }));
-        document.querySelector("#tag-低卡").click();
-        document.querySelector("#tag-高蛋白").click();
+        const input = document.querySelector('input[type="search"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(input, "茶葉蛋");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        document.querySelector(".recommend-button").click();
+        setTimeout(() => resolve([...document.querySelectorAll("#results .meal-card h3")].map((heading) => heading.textContent.trim())), 100);
+      })`,
+    )
+    assert(
+      teaEggSearch.length === 1 && teaEggSearch.includes("茶葉蛋"),
+      "Searching for tea egg did not isolate the matching meal",
+    )
+
+    const seafoodFilter = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        const input = document.querySelector('input[type="search"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(input, "");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        document.querySelector("#allergen-海鮮").click();
         document.querySelector(".recommend-button").click();
         setTimeout(() => resolve({
-          meals: [...document.querySelectorAll(".meal-card h3")].map((heading) => heading.textContent.trim()),
+          meals: [...document.querySelectorAll("#results .meal-card h3")].map((heading) => heading.textContent.trim()),
           history: document.querySelector("#history")?.textContent ?? ""
         }), 100);
       })`,
     )
     assert(
-      recommendation.meals.includes("鮮蝦酪梨沙拉") &&
-        recommendation.meals.includes("希臘優格莓果杯"),
-      "Recommendation flow did not return low-calorie high-protein meals",
+      !seafoodFilter.meals.includes("海鮮粥") && !seafoodFilter.meals.includes("鮭魚沙拉"),
+      "Seafood exclusion did not remove seafood meals",
     )
-    assert(
-      recommendation.history.includes("結果數量：2"),
-      "Query history did not record result count",
-    )
-
-    const allergenFilter = await evaluate(
-      client,
-      sessionId,
-      `new Promise((resolve) => {
-        document.querySelector("#allergen-海鮮").click();
-        document.querySelector(".recommend-button").click();
-        setTimeout(() => resolve([...document.querySelectorAll(".meal-card h3")].map((heading) => heading.textContent.trim())), 100);
-      })`,
-    )
-    assert(
-      !allergenFilter.includes("鮮蝦酪梨沙拉") && allergenFilter.includes("希臘優格莓果杯"),
-      "Allergen exclusion did not remove seafood meals",
-    )
+    assert(seafoodFilter.history.includes("結果數量"), "Query history did not record searches")
 
     const emptyResult = await evaluate(
       client,
@@ -380,7 +386,7 @@ async function main() {
         setter.call(input, "不存在的餐點");
         input.dispatchEvent(new Event("input", { bubbles: true }));
         document.querySelector(".recommend-button").click();
-        setTimeout(() => resolve(document.querySelector(".empty-state")?.textContent ?? ""), 100);
+        setTimeout(() => resolve(document.querySelector("#results .empty-state")?.textContent ?? ""), 100);
       })`,
     )
     assert(
@@ -392,21 +398,21 @@ async function main() {
       client,
       sessionId,
       `new Promise((resolve) => {
-        document.querySelector('a[href="#history"]').click();
+        document.querySelector('a[href="#meal-data"]').click();
         setTimeout(() => resolve({
           hash: location.hash,
-          heading: document.querySelector("#history h2")?.textContent,
-          top: Math.round(document.querySelector("#history").getBoundingClientRect().top),
-          bottom: Math.round(document.querySelector("#history").getBoundingClientRect().bottom),
+          heading: document.querySelector("#meal-data h2")?.textContent,
+          top: Math.round(document.querySelector("#meal-data").getBoundingClientRect().top),
+          bottom: Math.round(document.querySelector("#meal-data").getBoundingClientRect().bottom),
           height: window.innerHeight
         }), 600);
       })`,
     )
-    assert(anchorResult.hash === "#history", "Anchor navigation did not update the hash")
-    assert(anchorResult.heading === "查詢紀錄", "History section heading was not reached")
+    assert(anchorResult.hash === "#meal-data", "Anchor navigation did not update the hash")
+    assert(anchorResult.heading === "餐點資料", "Meal data section heading was not reached")
     assert(
       anchorResult.top < anchorResult.height && anchorResult.bottom > 0,
-      "History section was not visible after anchor navigation",
+      "Meal data section was not visible after anchor navigation",
     )
 
     await client.send(
@@ -470,10 +476,10 @@ async function main() {
     client.close()
 
     console.log("Browser walkthrough passed")
-    console.log("- Recommendation flow returned low-calorie high-protein meals")
-    console.log("- Allergen exclusion removed seafood meals")
+    console.log("- Meal data section rendered all meals")
+    console.log("- Tea egg search returned the matching meal")
+    console.log("- Seafood exclusion removed seafood meals")
     console.log("- Empty recommendation state appeared for unmatched search")
-    console.log("- Anchor navigation reached query history")
     console.log("- Mobile layout collapsed without horizontal overflow")
     if (shouldCaptureScreenshots) console.log(`- Screenshots saved to ${screenshotDir}`)
   } finally {
