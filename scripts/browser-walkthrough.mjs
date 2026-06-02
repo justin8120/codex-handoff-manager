@@ -1,0 +1,454 @@
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+
+const root = resolve(".");
+const distRoot = join(root, "dist");
+const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+const appUrl = "http://127.0.0.1:4174";
+const debugUrl = "http://127.0.0.1:9222";
+const runId = `${process.pid}-${Date.now()}`;
+const userDataDir = join(tmpdir(), `codex-handoff-walkthrough-chrome-${runId}`);
+const downloadDir = join(tmpdir(), `codex-handoff-walkthrough-downloads-${runId}`);
+const shouldCaptureScreenshots = process.argv.includes("--screenshots");
+const screenshotDir = join(root, "artifacts", "browser-walkthrough");
+
+function delay(ms) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+function waitForExit(processHandle, timeoutMs = 3_000) {
+  if (processHandle.exitCode !== null || processHandle.signalCode !== null) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolveExit) => {
+    const timer = setTimeout(resolveExit, timeoutMs);
+    processHandle.once("exit", () => {
+      clearTimeout(timer);
+      resolveExit();
+    });
+  });
+}
+
+function removeDirBestEffort(path) {
+  if (!existsSync(path)) return;
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+  } catch {
+    // Chrome can hold profile locks briefly on Windows. These temp paths are unique per run.
+  }
+}
+
+function killProcessTree(processHandle) {
+  if (process.platform === "win32" && processHandle.pid) {
+    spawnSync("taskkill", ["/PID", String(processHandle.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    return;
+  }
+
+  processHandle.kill();
+}
+
+async function waitForHttp(url, label) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 20_000) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {
+      // Server is not ready yet.
+    }
+    await delay(250);
+  }
+  throw new Error(`${label} did not become ready`);
+}
+
+function createStaticServer() {
+  const mimeTypes = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+  };
+
+  const server = createServer((request, response) => {
+    const requestUrl = new URL(request.url ?? "/", appUrl);
+    const pathname = decodeURIComponent(requestUrl.pathname);
+    const relativePath = pathname === "/" ? "index.html" : pathname.slice(1);
+    const filePath = join(distRoot, relativePath);
+
+    try {
+      if (!filePath.startsWith(distRoot) || !existsSync(filePath) || !statSync(filePath).isFile()) {
+        response.writeHead(404);
+        response.end("Not found");
+        return;
+      }
+
+      const extension = filePath.slice(filePath.lastIndexOf("."));
+      response.writeHead(200, { "Content-Type": mimeTypes[extension] ?? "application/octet-stream" });
+      response.end(readFileSync(filePath));
+    } catch (error) {
+      response.writeHead(500);
+      response.end(error instanceof Error ? error.message : "Server error");
+    }
+  });
+
+  return new Promise((resolveServer) => {
+    server.listen(4174, "127.0.0.1", () => resolveServer(server));
+  });
+}
+
+function spawnHidden(command, args, options = {}) {
+  return spawn(command, args, {
+    cwd: root,
+    detached: false,
+    stdio: "ignore",
+    windowsHide: true,
+    ...options,
+  });
+}
+
+class CdpClient {
+  constructor(wsUrl) {
+    this.nextId = 1;
+    this.pending = new Map();
+    this.events = new Map();
+    this.socket = new WebSocket(wsUrl);
+  }
+
+  async connect() {
+    await new Promise((resolveConnect, rejectConnect) => {
+      this.socket.addEventListener("open", resolveConnect, { once: true });
+      this.socket.addEventListener("error", rejectConnect, { once: true });
+    });
+
+    this.socket.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id && this.pending.has(message.id)) {
+        const { resolveMessage, rejectMessage } = this.pending.get(message.id);
+        this.pending.delete(message.id);
+        if (message.error) {
+          rejectMessage(new Error(message.error.message));
+        } else {
+          resolveMessage(message.result ?? {});
+        }
+        return;
+      }
+
+      const eventWaiters = this.events.get(message.method);
+      if (!eventWaiters) return;
+      this.events.delete(message.method);
+      for (const resolveEvent of eventWaiters) resolveEvent(message.params ?? {});
+    });
+  }
+
+  send(method, params = {}, sessionId) {
+    const id = this.nextId;
+    this.nextId += 1;
+    const payload = { id, method, params };
+    if (sessionId) payload.sessionId = sessionId;
+
+    return new Promise((resolveMessage, rejectMessage) => {
+      this.pending.set(id, { resolveMessage, rejectMessage });
+      this.socket.send(JSON.stringify(payload));
+    });
+  }
+
+  once(method) {
+    return new Promise((resolveEvent) => {
+      const waiters = this.events.get(method) ?? [];
+      waiters.push(resolveEvent);
+      this.events.set(method, waiters);
+    });
+  }
+
+  close() {
+    this.socket.close();
+  }
+}
+
+async function evaluate(client, sessionId, expression) {
+  const result = await client.send(
+    "Runtime.evaluate",
+    {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    },
+    sessionId,
+  );
+
+  if (result.exceptionDetails) {
+    throw new Error(result.exceptionDetails.text ?? "Browser evaluation failed");
+  }
+
+  return result.result.value;
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+async function waitForDownload(name) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 10_000) {
+    const files = existsSync(downloadDir) ? readdirSync(downloadDir) : [];
+    if (files.includes(name)) return;
+    await delay(250);
+  }
+  throw new Error(`${name} was not downloaded`);
+}
+
+async function captureScreenshot(client, sessionId, fileName) {
+  mkdirSync(screenshotDir, { recursive: true });
+  const { data } = await client.send(
+    "Page.captureScreenshot",
+    {
+      format: "png",
+      captureBeyondViewport: true,
+      fromSurface: true,
+    },
+    sessionId,
+  );
+  writeFileSync(join(screenshotDir, fileName), Buffer.from(data, "base64"));
+}
+
+async function main() {
+  removeDirBestEffort(downloadDir);
+  if (shouldCaptureScreenshots) removeDirBestEffort(screenshotDir);
+  mkdirSync(userDataDir, { recursive: true });
+  mkdirSync(downloadDir, { recursive: true });
+
+  assert(existsSync(join(distRoot, "index.html")), "dist/index.html does not exist; run npm run build first");
+  const server = await createStaticServer();
+  const chrome = spawnHidden(chromePath, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--remote-debugging-port=9222",
+    `--user-data-dir=${userDataDir}`,
+    "about:blank",
+  ]);
+
+  try {
+    await waitForHttp(appUrl, "Static preview server");
+    await waitForHttp(`${debugUrl}/json/version`, "Chrome DevTools");
+
+    const { webSocketDebuggerUrl } = await (await fetch(`${debugUrl}/json/version`)).json();
+    const client = new CdpClient(webSocketDebuggerUrl);
+    await client.connect();
+
+    const { targetId } = await client.send("Target.createTarget", { url: "about:blank" });
+    const { sessionId } = await client.send("Target.attachToTarget", { targetId, flatten: true });
+
+    await client.send("Page.enable", {}, sessionId);
+    await client.send("Runtime.enable", {}, sessionId);
+    await client.send("Browser.setDownloadBehavior", {
+      behavior: "allow",
+      downloadPath: downloadDir,
+      eventsEnabled: true,
+    });
+    await client.send("Browser.grantPermissions", {
+      origin: appUrl,
+      permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+    });
+    await client.send(
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: 1280,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      },
+      sessionId,
+    );
+
+    const loaded = client.once("Page.loadEventFired");
+    await client.send("Page.navigate", { url: appUrl }, sessionId);
+    await loaded;
+
+    const desktop = await evaluate(
+      client,
+      sessionId,
+      `(() => ({
+        title: document.querySelector("h1")?.textContent,
+        nav: [...document.querySelectorAll("nav a")].map((a) => a.textContent.trim()),
+        metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim())
+      }))()`,
+    );
+    assert(desktop.title === "Codex 專案交接管理器", "Hero title is not readable");
+    assert(desktop.nav.includes("資料盤點") && desktop.nav.includes("下載"), "Navigation labels are incomplete");
+    assert(desktop.metrics.join(",") === "9,6,67%", "Metrics did not match expected data");
+    if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "desktop.png");
+
+    const searchResult = await evaluate(
+      client,
+      sessionId,
+      `(() => {
+        const input = document.querySelector('input[type="search"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(input, "Runtime");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        return [...document.querySelectorAll("#inventory tbody tr")].map((row) => row.textContent.trim());
+      })()`,
+    );
+    assert(
+      searchResult.length === 1 && searchResult[0].includes("Runtime 驗證"),
+      "Search did not narrow inventory results",
+    );
+
+    const inventoryFilter = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        const input = document.querySelector('input[type="search"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(input, "");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        [...document.querySelectorAll("#inventory .segmented button")].find((button) => button.textContent.trim() === "待補齊").click();
+        setTimeout(() => resolve([...document.querySelectorAll("#inventory tbody tr")].map((row) => row.textContent.trim())), 100);
+      })`,
+    );
+    assert(inventoryFilter.length === 2, "Inventory status filter did not return two missing items");
+    assert(
+      inventoryFilter.every((row) => row.includes("待補齊")),
+      "Inventory status filter returned the wrong status",
+    );
+
+    const taskFilter = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        [...document.querySelectorAll("#tasks .segmented button")].find((button) => button.textContent.trim() === "進行中").click();
+        setTimeout(() => resolve([...document.querySelectorAll("#tasks .task-card")].map((card) => card.textContent.trim())), 100);
+      })`,
+    );
+    assert(
+      taskFilter.length === 1 && taskFilter[0].includes("互動式瀏覽器走查"),
+      "Task filter did not isolate the in-progress task",
+    );
+
+    const copyResult = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        [...document.querySelectorAll("button")].find((button) => button.textContent.includes("複製 Prompt")).click();
+        setTimeout(() => resolve(document.querySelector(".toast")?.textContent ?? ""), 300);
+      })`,
+    );
+    assert(copyResult === "Prompt 已複製", "Copy action did not show confirmation toast");
+
+    const anchorResult = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        document.querySelector('a[href="#downloads"]').click();
+        setTimeout(() => resolve({
+          hash: location.hash,
+          heading: document.querySelector("#downloads h2")?.textContent,
+          top: Math.round(document.querySelector("#downloads").getBoundingClientRect().top),
+          bottom: Math.round(document.querySelector("#downloads").getBoundingClientRect().bottom),
+          height: window.innerHeight
+        }), 600);
+      })`,
+    );
+    assert(anchorResult.hash === "#downloads", "Anchor navigation did not update the hash");
+    assert(anchorResult.heading === "下載交接檔案", "Download section heading was not reached");
+    assert(
+      anchorResult.top < anchorResult.height && anchorResult.bottom > 0,
+      "Download section was not visible after anchor navigation",
+    );
+
+    await evaluate(
+      client,
+      sessionId,
+      `(() => {
+        const card = [...document.querySelectorAll(".download-card")].find((item) => item.querySelector("h3")?.textContent === "TASKS.md");
+        card.querySelector("button").click();
+      })()`,
+    );
+    await waitForDownload("TASKS.md");
+
+    await client.send(
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 2,
+        mobile: true,
+      },
+      sessionId,
+    );
+    const mobileLoaded = client.once("Page.loadEventFired");
+    await client.send("Page.navigate", { url: appUrl }, sessionId);
+    await mobileLoaded;
+    const mobile = await evaluate(
+      client,
+      sessionId,
+      `(() => {
+        const shellRect = document.querySelector(".app-shell").getBoundingClientRect();
+        const sidebarRect = document.querySelector(".sidebar").getBoundingClientRect();
+        const navColumns = getComputedStyle(document.querySelector("nav")).gridTemplateColumns;
+        const firstAction = document.querySelector(".hero-actions button");
+        const viewportWidth = document.documentElement.clientWidth;
+        const overflowing = [...document.body.querySelectorAll("*")]
+          .filter((node) => !node.closest(".table-wrap") && !node.closest(".markdown-preview"))
+          .filter((node) => node.scrollWidth > viewportWidth + 1)
+          .map((node) => node.className || node.tagName)
+          .slice(0, 5);
+        return {
+          bodyScrollWidth: document.body.scrollWidth,
+          shellWidth: Math.round(shellRect.width),
+          sidebarWidth: Math.round(sidebarRect.width),
+          sidebarTop: Math.round(sidebarRect.top),
+          navColumns,
+          actionWidth: Math.round(firstAction.getBoundingClientRect().width),
+          viewportWidth,
+          overflowing
+        };
+      })()`,
+    );
+    assert(mobile.shellWidth <= mobile.viewportWidth, `Mobile app shell overflows viewport: ${JSON.stringify(mobile)}`);
+    assert(
+      mobile.sidebarWidth <= mobile.viewportWidth && mobile.sidebarTop === 0,
+      `Mobile sidebar did not collapse above content: ${JSON.stringify(mobile)}`,
+    );
+    assert(
+      !mobile.navColumns.includes(" "),
+      `Mobile navigation did not collapse to one column: ${JSON.stringify(mobile)}`,
+    );
+    assert(mobile.actionWidth >= 350, "Mobile action buttons are not full width");
+    assert(mobile.overflowing.length === 0, `Mobile layout overflow detected: ${mobile.overflowing.join(", ")}`);
+    if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "mobile.png");
+
+    await client.send("Browser.close").catch(() => undefined);
+    client.close();
+
+    console.log("Browser walkthrough passed");
+    console.log("- Search narrowed inventory to Runtime 驗證");
+    console.log("- Inventory and task status filters returned expected items");
+    console.log("- Copy action showed toast confirmation");
+    console.log("- Anchor navigation reached downloads section");
+    console.log("- TASKS.md downloaded successfully");
+    console.log("- Mobile layout collapsed without horizontal overflow");
+    if (shouldCaptureScreenshots) console.log(`- Screenshots saved to ${screenshotDir}`);
+  } finally {
+    killProcessTree(chrome);
+    server.close();
+    await waitForExit(chrome);
+    await delay(500);
+    removeDirBestEffort(userDataDir);
+    removeDirBestEffort(downloadDir);
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
