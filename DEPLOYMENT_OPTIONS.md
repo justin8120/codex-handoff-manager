@@ -31,7 +31,7 @@ VITE_BASE_PATH=/${{ github.event.repository.name }}/
 `vite.config.ts` reads that value with:
 
 ```ts
-base: process.env.VITE_BASE_PATH ?? "/";
+base: process.env.VITE_BASE_PATH ?? "/"
 ```
 
 This keeps local builds working while allowing GitHub Pages repository deployments without hard-coding the repository name.

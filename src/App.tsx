@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState } from "react"
 import {
   Archive,
   Bot,
@@ -10,8 +10,8 @@ import {
   ListChecks,
   PackageCheck,
   Search,
-} from "lucide-react";
-import { agentsMarkdown, downloads, inventory, promptMarkdown, tasks } from "./handoffData";
+} from "lucide-react"
+import { agentsMarkdown, downloads, inventory, promptMarkdown, tasks } from "./handoffData"
 
 const navItems = [
   { label: "總覽", href: "#home", icon: Home },
@@ -19,7 +19,7 @@ const navItems = [
   { label: "階段任務", href: "#tasks", icon: ListChecks },
   { label: "AGENTS.md", href: "#agents", icon: Bot },
   { label: "下載", href: "#downloads", icon: Download },
-];
+]
 
 const statusClass = {
   已確認: "status known",
@@ -29,77 +29,79 @@ const statusClass = {
   進行中: "status active",
   待處理: "status waiting",
   未開始: "status missing",
-};
+}
 
-const inventoryStatuses = ["全部", "已確認", "待補齊", "待複查"] as const;
-const taskStatuses = ["全部", "已完成", "進行中", "待處理", "未開始"] as const;
+const inventoryStatuses = ["全部", "已確認", "待補齊", "待複查"] as const
+const taskStatuses = ["全部", "已完成", "進行中", "待處理", "未開始"] as const
 
 function downloadTextFile(name: string, content: string) {
-  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  URL.revokeObjectURL(url);
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = name
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 async function copyText(content: string) {
   if (navigator.clipboard) {
-    await navigator.clipboard.writeText(content);
-    return;
+    await navigator.clipboard.writeText(content)
+    return
   }
 
-  const textArea = document.createElement("textarea");
-  textArea.value = content;
-  textArea.style.position = "fixed";
-  textArea.style.left = "-9999px";
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textArea);
+  const textArea = document.createElement("textarea")
+  textArea.value = content
+  textArea.style.position = "fixed"
+  textArea.style.left = "-9999px"
+  document.body.appendChild(textArea)
+  textArea.focus()
+  textArea.select()
+  document.execCommand("copy")
+  document.body.removeChild(textArea)
 }
 
 export function App() {
-  const [inventoryStatus, setInventoryStatus] = useState<(typeof inventoryStatuses)[number]>("全部");
-  const [taskStatus, setTaskStatus] = useState<(typeof taskStatuses)[number]>("全部");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
+  const [inventoryStatus, setInventoryStatus] = useState<(typeof inventoryStatuses)[number]>("全部")
+  const [taskStatus, setTaskStatus] = useState<(typeof taskStatuses)[number]>("全部")
+  const [searchTerm, setSearchTerm] = useState("")
+  const [copiedLabel, setCopiedLabel] = useState<string | null>(null)
 
-  const completedTasks = tasks.filter((task) => task.status === "已完成").length;
-  const progress = Math.round((completedTasks / tasks.length) * 100);
-  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const completedTasks = tasks.filter((task) => task.status === "已完成").length
+  const progress = Math.round((completedTasks / tasks.length) * 100)
+  const normalizedSearch = searchTerm.trim().toLowerCase()
 
   const filteredInventory = useMemo(
     () =>
       inventory.filter((item) => {
-        const matchesStatus = inventoryStatus === "全部" || item.status === inventoryStatus;
+        const matchesStatus = inventoryStatus === "全部" || item.status === inventoryStatus
         const matchesSearch =
           normalizedSearch.length === 0 ||
-          `${item.category} ${item.status} ${item.description}`.toLowerCase().includes(normalizedSearch);
-        return matchesStatus && matchesSearch;
+          `${item.category} ${item.status} ${item.description}`
+            .toLowerCase()
+            .includes(normalizedSearch)
+        return matchesStatus && matchesSearch
       }),
     [inventoryStatus, normalizedSearch],
-  );
+  )
 
   const filteredTasks = useMemo(
     () =>
       tasks.filter((task) => {
-        const matchesStatus = taskStatus === "全部" || task.status === taskStatus;
+        const matchesStatus = taskStatus === "全部" || task.status === taskStatus
         const matchesSearch =
           normalizedSearch.length === 0 ||
-          `${task.title} ${task.status} ${task.details}`.toLowerCase().includes(normalizedSearch);
-        return matchesStatus && matchesSearch;
+          `${task.title} ${task.status} ${task.details}`.toLowerCase().includes(normalizedSearch)
+        return matchesStatus && matchesSearch
       }),
     [taskStatus, normalizedSearch],
-  );
+  )
 
   const handleCopy = async (label: string, content: string) => {
-    await copyText(content);
-    setCopiedLabel(label);
-    window.setTimeout(() => setCopiedLabel(null), 1600);
-  };
+    await copyText(content)
+    setCopiedLabel(label)
+    window.setTimeout(() => setCopiedLabel(null), 1600)
+  }
 
   return (
     <div className="app-shell">
@@ -128,13 +130,16 @@ export function App() {
           <div className="eyebrow">React + TypeScript Handoff App</div>
           <h1>Codex 專案交接管理器</h1>
           <p>
-            集中管理目前的專案背景、資料盤點、階段任務、AGENTS.md 預覽與下載內容，讓下一位 coding agent 可以快速接手。
+            集中管理目前的專案背景、資料盤點、階段任務、AGENTS.md 預覽與下載內容，讓下一位 coding
+            agent 可以快速接手。
           </p>
           <div className="hero-actions">
             <a className="primary-action" href="#inventory">
               查看資料盤點
             </a>
-            <button onClick={() => downloadTextFile("AGENTS.md", agentsMarkdown)}>下載 AGENTS.md</button>
+            <button onClick={() => downloadTextFile("AGENTS.md", agentsMarkdown)}>
+              下載 AGENTS.md
+            </button>
             <button onClick={() => handleCopy("Prompt", promptMarkdown)}>
               <Copy size={17} aria-hidden="true" />
               複製 Prompt
@@ -211,7 +216,9 @@ export function App() {
               </tbody>
             </table>
           </div>
-          {filteredInventory.length === 0 ? <p className="empty-state">沒有符合條件的盤點項目。</p> : null}
+          {filteredInventory.length === 0 ? (
+            <p className="empty-state">沒有符合條件的盤點項目。</p>
+          ) : null}
         </section>
 
         <section className="section" id="tasks">
@@ -263,7 +270,10 @@ export function App() {
             <p>提供給 coding agent 的協作規則與接手流程，可直接複製或下載。</p>
           </div>
           <div className="toolbar">
-            <button className="utility-button" onClick={() => handleCopy("AGENTS.md", agentsMarkdown)}>
+            <button
+              className="utility-button"
+              onClick={() => handleCopy("AGENTS.md", agentsMarkdown)}
+            >
               <Copy size={17} aria-hidden="true" />
               複製 AGENTS.md
             </button>
@@ -297,5 +307,5 @@ export function App() {
         </section>
       </main>
     </div>
-  );
+  )
 }

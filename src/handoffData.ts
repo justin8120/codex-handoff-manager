@@ -1,24 +1,24 @@
-export type InventoryStatus = "已確認" | "待補齊" | "待複查";
-export type TaskStatus = "已完成" | "進行中" | "待處理" | "未開始";
+export type InventoryStatus = "已確認" | "待補齊" | "待複查"
+export type TaskStatus = "已完成" | "進行中" | "待處理" | "未開始"
 
 export type InventoryItem = {
-  category: string;
-  status: InventoryStatus;
-  description: string;
-};
+  category: string
+  status: InventoryStatus
+  description: string
+}
 
 export type TaskItem = {
-  id: string;
-  title: string;
-  status: TaskStatus;
-  details: string;
-};
+  id: string
+  title: string
+  status: TaskStatus
+  details: string
+}
 
 export type DownloadFile = {
-  name: string;
-  purpose: string;
-  content: string;
-};
+  name: string
+  purpose: string
+  content: string
+}
 
 export const promptMarkdown = `# 交接給 Codex 的起始 Prompt
 
@@ -33,7 +33,7 @@ export const promptMarkdown = `# 交接給 Codex 的起始 Prompt
 5. 依照 TASKS.md 推進下一個合理階段，並在結尾回報 summary、changed、validation、assumptions、risks/follow-ups。
 
 若資料不足，請先做最小可逆的檢查，不要捏造不存在的 API、資料庫、畫面或業務規則。
-`;
+`
 
 export const inventory: InventoryItem[] = [
   {
@@ -79,22 +79,25 @@ export const inventory: InventoryItem[] = [
   {
     category: "來源 handoff 文件",
     status: "待複查",
-    description: "codex_ready_context_bundle_v2 內的原始中文內容疑似有編碼問題，UI 已先整理為可讀版本。",
+    description:
+      "codex_ready_context_bundle_v2 內的原始中文內容疑似有編碼問題，UI 已先整理為可讀版本。",
   },
-];
+]
 
 export const tasks: TaskItem[] = [
   {
     id: "phase-0",
     title: "建立 Codex 交接包",
     status: "已完成",
-    details: "建立 README、AGENTS、PROJECT_CONTEXT、DATA_INVENTORY、TASKS、code_review 與 starter prompt。",
+    details:
+      "建立 README、AGENTS、PROJECT_CONTEXT、DATA_INVENTORY、TASKS、code_review 與 starter prompt。",
   },
   {
     id: "phase-1",
     title: "建立前端專案骨架",
     status: "已完成",
-    details: "建立 Vite + React + TypeScript app，並加入主要導覽、資料盤點、任務列表、預覽與下載區塊。",
+    details:
+      "建立 Vite + React + TypeScript app，並加入主要導覽、資料盤點、任務列表、預覽與下載區塊。",
   },
   {
     id: "phase-2",
@@ -120,7 +123,7 @@ export const tasks: TaskItem[] = [
     status: "未開始",
     details: "可評估加入 ESLint、Prettier、測試框架或 Playwright，讓交接 app 更容易維護。",
   },
-];
+]
 
 export const agentsMarkdown = `# AGENTS.md
 
@@ -146,7 +149,7 @@ export const agentsMarkdown = `# AGENTS.md
 - Validation: 執行了哪些驗證。
 - Assumptions: 有哪些假設。
 - Risks / Follow-ups: 還有哪些風險或後續工作。
-`;
+`
 
 const dataInventoryMarkdown = `# DATA_INVENTORY.md
 
@@ -163,7 +166,7 @@ const dataInventoryMarkdown = `# DATA_INVENTORY.md
 | 自動化測試 | 待補齊 | 尚未設定 test script |
 | Lint / Format | 待補齊 | 尚未設定 lint 或 formatter |
 | 原始 handoff 文件 | 待複查 | 部分來源文字疑似編碼損壞 |
-`;
+`
 
 const tasksMarkdown = `# TASKS.md
 
@@ -204,7 +207,7 @@ const tasksMarkdown = `# TASKS.md
 狀態：未開始
 
 評估加入 ESLint、Prettier、測試框架或 Playwright。
-`;
+`
 
 const projectContextMarkdown = `# PROJECT_CONTEXT.md
 
@@ -226,7 +229,7 @@ const projectContextMarkdown = `# PROJECT_CONTEXT.md
 - 原始 handoff 文件的編碼可讀性複查
 - 自動化測試策略
 - Lint / format 設定
-`;
+`
 
 const codeReviewMarkdown = `# code_review.md
 
@@ -245,7 +248,7 @@ const codeReviewMarkdown = `# code_review.md
 - 尚未建立自動化測試。
 - 尚未設定 lint 或 formatter。
 - 尚未完成截圖式瀏覽器驗證。
-`;
+`
 
 export const downloads: DownloadFile[] = [
   {
@@ -278,4 +281,4 @@ export const downloads: DownloadFile[] = [
     purpose: "後續 code review 的檢查清單。",
     content: codeReviewMarkdown,
   },
-];
+]
