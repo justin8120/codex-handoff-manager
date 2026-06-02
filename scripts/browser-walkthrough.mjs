@@ -14,7 +14,6 @@ import { spawn, spawnSync } from "node:child_process"
 
 const root = resolve(".")
 const distRoot = join(root, "dist")
-const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 const appUrl = "http://127.0.0.1:4174"
 const debugUrl = "http://127.0.0.1:9222"
 const runId = `${process.pid}-${Date.now()}`
@@ -25,6 +24,64 @@ const screenshotDir = join(root, "artifacts", "browser-walkthrough")
 
 function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms))
+}
+
+function resolveChromePath() {
+  const candidates = [
+    {
+      label: "CHROME_PATH",
+      path: process.env.CHROME_PATH,
+    },
+    {
+      label: "PUPPETEER_EXECUTABLE_PATH",
+      path: process.env.PUPPETEER_EXECUTABLE_PATH,
+    },
+    {
+      label: "Windows Program Files",
+      path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    },
+    {
+      label: "Windows Program Files x86",
+      path: "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    },
+    {
+      label: "macOS Applications",
+      path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    },
+    {
+      label: "Linux google-chrome",
+      path: "/usr/bin/google-chrome",
+    },
+    {
+      label: "Linux google-chrome-stable",
+      path: "/usr/bin/google-chrome-stable",
+    },
+    {
+      label: "Linux chromium",
+      path: "/usr/bin/chromium",
+    },
+    {
+      label: "Linux chromium-browser",
+      path: "/usr/bin/chromium-browser",
+    },
+  ]
+
+  const match = candidates.find((candidate) => candidate.path && existsSync(candidate.path))
+  if (match?.path) return match.path
+
+  const attemptedPaths = candidates.map((candidate) => {
+    const value = candidate.path || "<not set>"
+    return `- ${candidate.label}: ${value}`
+  })
+
+  throw new Error(
+    [
+      "Chrome executable was not found for the browser walkthrough.",
+      "Set CHROME_PATH or PUPPETEER_EXECUTABLE_PATH to a Chrome/Chromium executable, or install Chrome in a common location.",
+      "Attempted paths:",
+      ...attemptedPaths,
+    ].join("\n"),
+  )
 }
 
 function waitForExit(processHandle, timeoutMs = 3_000) {
@@ -239,6 +296,7 @@ async function main() {
     "dist/index.html does not exist; run npm run build first",
   )
   const server = await createStaticServer()
+  const chromePath = resolveChromePath()
   const chrome = spawnHidden(chromePath, [
     "--headless=new",
     "--disable-gpu",
