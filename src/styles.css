@@ -299,6 +299,7 @@ h3 {
 
 .notice,
 .status-message,
+.error-message,
 .helper-text,
 .source-note {
   color: #607086;
@@ -309,6 +310,14 @@ h3 {
   padding: 12px 14px;
   border-radius: 8px;
   background: #f6f8fb;
+}
+
+.error-message {
+  padding: 12px 14px;
+  border: 1px solid #ffd2da;
+  border-radius: 8px;
+  color: #8c2634;
+  background: #fff0f2;
 }
 
 .analysis-result {
@@ -377,6 +386,11 @@ fieldset {
 .recommend-button {
   width: fit-content;
   min-width: 160px;
+}
+
+.recommend-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .meal-grid,

@@ -313,6 +313,7 @@ async function main() {
     const loaded = client.once("Page.loadEventFired")
     await client.send("Page.navigate", { url: appUrl }, sessionId)
     await loaded
+    await delay(3_000)
 
     const desktop = await evaluate(
       client,
@@ -322,6 +323,7 @@ async function main() {
         nav: [...document.querySelectorAll("nav a")].map((a) => a.textContent.trim()),
         metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim()),
         aiHeading: document.querySelector("#ai-analysis h2")?.textContent,
+        backendStatus: document.body.textContent,
         mealDataset: [...document.querySelectorAll("#meal-dataset .meal-card h3")].map((heading) => heading.textContent.trim())
       }))()`,
     )
@@ -335,48 +337,15 @@ async function main() {
     assert(desktop.metrics.join(",") === "9,5,4", "Metrics did not match expected meal data")
     assert(desktop.aiHeading === "AI 餐點分析與資料集擴充", "AI analysis section was not rendered")
     assert(
+      desktop.backendStatus.includes("AI 後端尚未啟動，請先啟動 FastAPI server。") &&
+        desktop.backendStatus.includes("離線展示模式"),
+      "Offline backend status was not shown for the static walkthrough",
+    )
+    assert(
       desktop.mealDataset.length === 9 && desktop.mealDataset.includes("茶葉蛋"),
       "Meal dataset section did not render the complete dataset",
     )
     if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "desktop.png")
-
-    const aiAnalysis = await evaluate(
-      client,
-      sessionId,
-      `new Promise((resolve) => {
-        const textarea = document.querySelector("textarea");
-        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
-        setter.call(textarea, "炸雞");
-        textarea.dispatchEvent(new Event("input", { bubbles: true }));
-        [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "AI 分析餐點").click();
-        setTimeout(() => resolve({
-          result: document.querySelector(".analysis-result")?.textContent ?? "",
-          datasetCount: document.querySelectorAll("#meal-dataset .meal-card").length
-        }), 100);
-      })`,
-    )
-    assert(
-      aiAnalysis.result.includes("炸雞餐") && aiAnalysis.result.includes("來源類型：文字"),
-      "AI demo analysis did not produce the expected fried chicken result",
-    )
-
-    const datasetExpansion = await evaluate(
-      client,
-      sessionId,
-      `new Promise((resolve) => {
-        [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "加入餐點資料集").click();
-        setTimeout(() => resolve({
-          message: document.querySelector(".status-message")?.textContent ?? "",
-          meals: [...document.querySelectorAll("#meal-dataset .meal-card h3")].map((heading) => heading.textContent.trim())
-        }), 100);
-      })`,
-    )
-    assert(
-      datasetExpansion.message.includes("已加入餐點資料集") &&
-        datasetExpansion.meals.includes("炸雞餐") &&
-        datasetExpansion.meals.length === 10,
-      "AI analysis result was not added to the meal dataset",
-    )
 
     const recommendationFlow = await evaluate(
       client,
@@ -384,15 +353,15 @@ async function main() {
       `new Promise((resolve) => {
         const input = document.querySelector('input[type="search"]');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        setter.call(input, "炸雞");
+        setter.call(input, "茶葉蛋");
         input.dispatchEvent(new Event("input", { bubbles: true }));
         [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "搜尋 / 推薦").click();
         setTimeout(() => resolve([...document.querySelectorAll("#results .meal-card h3")].map((heading) => heading.textContent.trim())), 100);
       })`,
     )
     assert(
-      recommendationFlow.length === 1 && recommendationFlow.includes("炸雞餐"),
-      "Recommendation flow did not use the expanded dataset",
+      recommendationFlow.length === 1 && recommendationFlow.includes("茶葉蛋"),
+      "Offline recommendation flow did not find tea egg",
     )
 
     const seafoodFilter = await evaluate(
@@ -517,9 +486,8 @@ async function main() {
 
     console.log("Browser walkthrough passed")
     console.log("- AI analysis section rendered")
-    console.log("- Text-based demo analysis produced a meal result")
-    console.log("- Analysis result was added to the meal dataset")
-    console.log("- Recommendation flow used the expanded dataset")
+    console.log("- Offline backend status appeared for static build")
+    console.log("- Offline recommendation flow found tea egg")
     console.log("- Seafood exclusion removed seafood meals")
     console.log("- Empty recommendation state appeared for unmatched search")
     console.log("- Mobile layout collapsed without horizontal overflow")

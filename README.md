@@ -1,67 +1,86 @@
 # 智慧飲食建議系統
 
-智慧飲食建議系統是一個 React + TypeScript + Vite 展示網站。使用者可以透過文字描述、餐點照片或餐點連結取得前端 demo AI 分析結果，將結果加入餐點資料集，再依健康目標、飲食標籤、關鍵字與禁忌食材進行餐點推薦。
+智慧飲食建議系統包含 React + TypeScript + Vite 前端與 FastAPI 後端。前端部署在 GitHub Pages，後端負責安全呼叫 OpenAI API、分析餐點、儲存餐點資料集，並提供推薦 API。
 
 ## Features
 
-- AI 餐點分析與資料集擴充區塊
-- 三種 demo 輸入方式：文字描述、圖片上傳、連結輸入
-- 分析結果顯示餐點名稱、類型、估算熱量、估算蛋白質、飲食標籤、主要食材、過敏原、推薦原因、信心分數與來源類型
-- 可將分析結果加入餐點資料集，並立即用於推薦
-- 健康目標：減脂、增肌、均衡飲食、健康維持
-- 飲食標籤：低卡、高蛋白、低脂、健康餐、素食
-- 過敏原或禁忌食材排除：花生、牛肉、海鮮、乳製品
-- 餐點資料集預設包含 9 筆資料：雞胸肉便當、茶葉蛋、鮭魚沙拉、豆腐蔬菜碗、燕麥優格杯、牛肉蔬菜飯、地瓜雞蛋餐、海鮮粥、蔬食便當
+- 文字描述、圖片上傳、連結輸入三種 AI 餐點分析方式
+- 後端透過 OpenAI Responses API 產生餐點分析 JSON
+- 分析結果包含餐點名稱、類型、估算熱量、估算蛋白質、標籤、主要食材、過敏原、推薦原因、信心分數與來源類型
+- 可將 AI 分析結果加入餐點資料集，資料會寫回 `backend/data/meals.json`
+- 前端餐點推薦優先呼叫後端 `POST /api/recommend`
+- 後端未啟動時，前端會顯示「AI 後端尚未啟動，請先啟動 FastAPI server。」並進入離線展示模式
+- 預設餐點資料集包含雞胸肉便當、茶葉蛋、鮭魚沙拉、豆腐蔬菜碗、燕麥優格杯、牛肉蔬菜飯、地瓜雞蛋餐、海鮮粥、蔬食便當
 - 查無結果時顯示「未找到符合條件的餐點，請調整搜尋條件」
-- 查詢紀錄顯示最近條件與結果數量
-- 響應式版面支援桌面與手機
 
-## AI Demo Notes
-
-目前前端提供 demo AI 分析流程，會根據輸入關鍵字產生合理的示範分析結果。例如「雞胸肉」偏向高蛋白、低脂，「炸雞」偏向高熱量，「茶葉蛋」偏向低熱量與蛋白質補充。
-
-此 demo 不會呼叫真正的 OpenAI API，也不會真正解析圖片或網頁內容。正式 AI 版本需新增後端服務並在後端串接 OpenAI API。OpenAI API Key 不可放在前端或 GitHub Pages 靜態頁面中。
-
-GitHub Pages 只能部署前端。若要真正分析圖片、連結與營養資料，後端需另外部署，並由前端呼叫後端 API。
-
-## Tech Stack
-
-- React + TypeScript + Vite
-- ESLint
-- Prettier
-- Vitest + React Testing Library
-- Browser walkthrough script for production build checks
-- GitHub Actions CI
-- GitHub Pages deployment through GitHub Actions
-
-## Scripts
+## Frontend
 
 ```bash
+npm install
 npm run dev
-npm run format
-npm run format:check
-npm run lint
-npm run typecheck
-npm run test
-npm run test:watch
-npm run build
-npm run test:browser
+```
+
+前端環境變數：
+
+```bash
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+GitHub Pages 只部署前端。OpenAI API Key 不可放在前端，也不可 commit 到 git。
+
+## Backend
+
+```powershell
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+# 在 .env 填入 OPENAI_API_KEY
+uvicorn app.main:app --reload --port 8000
+```
+
+`backend/.env`：
+
+```bash
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4.1-mini
+FRONTEND_ORIGIN=http://localhost:5173
+```
+
+## AI Analysis Flow
+
+- `POST /api/analyze/text`: 使用文字描述呼叫 OpenAI API。
+- `POST /api/analyze/image`: 圖片轉成 base64 data URL 後交給支援 vision 的模型分析。
+- `POST /api/analyze/url`: 後端只擷取使用者提供的單一 URL，使用 httpx + BeautifulSoup 取得 title、meta description 與主要文字，再交給 OpenAI 分析。
+
+AI 營養數值為估算值，實際數值仍需以餐點標示或專業資料為準。
+
+## Validation
+
+Frontend:
+
+```bash
 npm run validate
 ```
 
-`npm run validate` 會依序執行 content check、Prettier check、lint、typecheck、unit/component tests、production build 與 browser walkthrough。
+Backend:
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest
+```
 
 ## Deployment
 
 - GitHub repository: https://github.com/justin8120/codex-handoff-manager
 - GitHub Pages URL: https://justin8120.github.io/codex-handoff-manager/
-- CI workflow: passed
-- Deploy GitHub Pages workflow: passed
-
-目前部署平台為 GitHub Pages。Vite production base 會在 GitHub Actions 中依 `GITHUB_REPOSITORY` 設定 repository page 路徑，本機開發與本機 build 不受影響。
+- GitHub Pages deploys only the frontend
+- FastAPI backend must be deployed separately for real AI analysis
 
 ## Risks / Follow-Ups
 
 - automated visual diff is not configured
 - project documents should stay synchronized after deployment changes
-- 正式 AI 版本需要後端 API、OpenAI API 整合、圖片/連結解析與營養資料來源
+- FastAPI backend still needs a production deployment target such as Render, Railway, or Fly.io

@@ -21,8 +21,19 @@ const filesToCheck = [
   "src/main.tsx",
   "src/styles.css",
   "src/test/setup.ts",
+  "src/vite-env.d.ts",
   "scripts/browser-walkthrough.mjs",
   "scripts/check-content.mjs",
+  "backend/README.md",
+  "backend/.env.example",
+  "backend/requirements.txt",
+  "backend/app/main.py",
+  "backend/app/models.py",
+  "backend/app/services/openai_meal_analyzer.py",
+  "backend/app/services/url_fetcher.py",
+  "backend/app/storage/meals_store.py",
+  "backend/tests/test_api.py",
+  "backend/data/meals.json",
 ]
 
 const mojibakeTokens = [

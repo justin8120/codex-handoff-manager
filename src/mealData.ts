@@ -17,6 +17,8 @@ export type Meal = {
   reason: string
   confidence?: number
   sourceType?: "文字" | "圖片" | "連結" | "資料集"
+  createdAt?: string
+  isAiGenerated?: boolean
 }
 
 export const healthGoals: HealthGoal[] = ["減脂", "增肌", "均衡飲食", "健康維持"]

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Apple,
   Database,
@@ -9,6 +9,16 @@ import {
   SlidersHorizontal,
   Utensils,
 } from "lucide-react"
+import {
+  addMeal,
+  analyzeImage,
+  analyzeText,
+  analyzeUrl,
+  fetchHealth,
+  fetchMeals,
+  recommendMeals,
+  type BackendHealth,
+} from "./api"
 import {
   allergens,
   dietTags,
@@ -28,12 +38,6 @@ type QueryRecord = {
   resultCount: number
 }
 
-type DemoAnalysisInput = {
-  text: string
-  link: string
-  imageName: string
-}
-
 const defaultGoal: HealthGoal = "均衡飲食"
 
 function toggleValue<T>(values: T[], value: T) {
@@ -44,136 +48,29 @@ function formatList(values: string[]) {
   return values.length > 0 ? values.join("、") : "未指定"
 }
 
-function includesAny(text: string, keywords: string[]) {
-  return keywords.some((keyword) => text.includes(keyword))
-}
+function filterLocalMeals(
+  mealDataset: Meal[],
+  goal: HealthGoal,
+  selectedTags: DietTag[],
+  excludedAllergens: Allergen[],
+  keyword: string,
+) {
+  const normalizedKeyword = keyword.trim().toLowerCase()
+  return mealDataset.filter((meal) => {
+    const matchesGoal = meal.goals.includes(goal)
+    const matchesTags = selectedTags.every((tag) => meal.tags.includes(tag))
+    const avoidsAllergens = excludedAllergens.every(
+      (allergen) => !meal.allergens.includes(allergen),
+    )
+    const matchesKeyword =
+      normalizedKeyword.length === 0 ||
+      [meal.name, meal.type, meal.reason, ...meal.tags, ...meal.ingredients, ...meal.allergens]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedKeyword)
 
-function getSourceType(input: DemoAnalysisInput): Meal["sourceType"] {
-  if (input.imageName) return "圖片"
-  if (input.link) return "連結"
-  return "文字"
-}
-
-function createDemoAnalysis(input: DemoAnalysisInput): Meal {
-  const sourceText = `${input.text} ${input.link} ${input.imageName}`.toLowerCase()
-  const sourceType = getSourceType(input)
-
-  if (includesAny(sourceText, ["茶葉蛋", "tea egg"])) {
-    return {
-      id: "ai-preview-tea-egg",
-      name: "茶葉蛋",
-      type: "點心",
-      calories: 80,
-      protein: 7,
-      tags: ["低卡", "高蛋白", "低脂"],
-      goals: ["減脂", "均衡飲食", "健康維持"],
-      ingredients: ["雞蛋", "茶葉", "醬油", "香料"],
-      allergens: [],
-      reason: "示範分析判斷此餐點熱量低且含蛋白質，適合作為輕量補給。",
-      confidence: 0.92,
-      sourceType,
-    }
-  }
-
-  if (includesAny(sourceText, ["炸雞", "fried chicken"])) {
-    return {
-      id: "ai-preview-fried-chicken",
-      name: "炸雞餐",
-      type: "速食主餐",
-      calories: 720,
-      protein: 32,
-      tags: ["高蛋白"],
-      goals: ["均衡飲食"],
-      ingredients: ["雞肉", "麵衣", "食用油", "香料"],
-      allergens: [],
-      reason: "示範分析判斷此餐點蛋白質不低，但油炸烹調使熱量偏高，建議控制份量。",
-      confidence: 0.78,
-      sourceType,
-    }
-  }
-
-  if (includesAny(sourceText, ["雞胸", "chicken breast"])) {
-    return {
-      id: "ai-preview-chicken-breast",
-      name: "雞胸肉便當",
-      type: "便當",
-      calories: 480,
-      protein: 38,
-      tags: ["高蛋白", "低脂", "健康餐"],
-      goals: ["減脂", "增肌", "均衡飲食"],
-      ingredients: ["雞胸肉", "白飯", "青菜"],
-      allergens: [],
-      reason: "示範分析判斷雞胸肉是低脂高蛋白來源，適合減脂或增肌飲食。",
-      confidence: 0.88,
-      sourceType,
-    }
-  }
-
-  if (includesAny(sourceText, ["鮭魚", "蝦", "海鮮", "salmon", "shrimp", "seafood"])) {
-    return {
-      id: "ai-preview-seafood",
-      name: "海鮮蛋白餐",
-      type: "主餐",
-      calories: 430,
-      protein: 30,
-      tags: ["高蛋白", "低脂", "健康餐"],
-      goals: ["減脂", "均衡飲食", "健康維持"],
-      ingredients: ["魚片", "蝦仁", "蔬菜", "米飯"],
-      allergens: ["海鮮"],
-      reason: "示範分析判斷此餐點以海鮮蛋白為主，脂肪較低，但海鮮過敏者應排除。",
-      confidence: 0.82,
-      sourceType,
-    }
-  }
-
-  if (includesAny(sourceText, ["牛肉", "beef"])) {
-    return {
-      id: "ai-preview-beef",
-      name: "牛肉蔬菜飯",
-      type: "主餐",
-      calories: 610,
-      protein: 40,
-      tags: ["高蛋白", "健康餐"],
-      goals: ["增肌", "均衡飲食"],
-      ingredients: ["牛肉", "米飯", "青菜"],
-      allergens: ["牛肉"],
-      reason: "示範分析判斷牛肉提供較高蛋白與熱量，適合訓練日補充。",
-      confidence: 0.84,
-      sourceType,
-    }
-  }
-
-  if (includesAny(sourceText, ["豆腐", "蔬食", "素食", "tofu", "veggie"])) {
-    return {
-      id: "ai-preview-veggie",
-      name: "豆腐蔬菜碗",
-      type: "素食主餐",
-      calories: 410,
-      protein: 22,
-      tags: ["低卡", "低脂", "健康餐", "素食"],
-      goals: ["減脂", "均衡飲食", "健康維持"],
-      ingredients: ["豆腐", "糙米", "蔬菜"],
-      allergens: [],
-      reason: "示範分析判斷此餐點以植物性蛋白與蔬菜為主，適合素食與均衡飲食。",
-      confidence: 0.86,
-      sourceType,
-    }
-  }
-
-  return {
-    id: "ai-preview-general",
-    name: input.text.trim() || input.imageName || "連結餐點分析",
-    type: "綜合餐",
-    calories: 520,
-    protein: 24,
-    tags: ["健康餐"],
-    goals: ["均衡飲食", "健康維持"],
-    ingredients: ["主食", "蛋白質", "蔬菜"],
-    allergens: [],
-    reason: "示範分析根據輸入推估為一般均衡餐點；正式版本需由後端串接 AI 與營養資料來源。",
-    confidence: 0.62,
-    sourceType,
-  }
+    return matchesGoal && matchesTags && avoidsAllergens && matchesKeyword
+  })
 }
 
 function MealCard({ meal }: { meal: Meal }) {
@@ -220,6 +117,7 @@ function MealCard({ meal }: { meal: Meal }) {
           {meal.sourceType ? `來源類型：${meal.sourceType}` : null}
           {meal.sourceType && meal.confidence ? "，" : null}
           {meal.confidence ? `信心分數：${Math.round(meal.confidence * 100)}%` : null}
+          {meal.isAiGenerated ? "，AI 產生" : null}
         </p>
       ) : null}
     </article>
@@ -228,59 +126,108 @@ function MealCard({ meal }: { meal: Meal }) {
 
 export function App() {
   const [mealDataset, setMealDataset] = useState<Meal[]>(meals)
+  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null)
+  const [backendError, setBackendError] = useState("")
+  const [isOfflineMode, setIsOfflineMode] = useState(false)
   const [goal, setGoal] = useState<HealthGoal>(defaultGoal)
   const [selectedTags, setSelectedTags] = useState<DietTag[]>([])
   const [excludedAllergens, setExcludedAllergens] = useState<Allergen[]>([])
   const [keyword, setKeyword] = useState("")
   const [hasSearched, setHasSearched] = useState(false)
+  const [recommendedMeals, setRecommendedMeals] = useState<Meal[]>(meals)
   const [history, setHistory] = useState<QueryRecord[]>([])
   const [description, setDescription] = useState("")
   const [mealLink, setMealLink] = useState("")
-  const [imageName, setImageName] = useState("")
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const [analysisResult, setAnalysisResult] = useState<Meal | null>(null)
   const [analysisMessage, setAnalysisMessage] = useState("")
+  const [analysisError, setAnalysisError] = useState("")
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
-  const normalizedKeyword = keyword.trim().toLowerCase()
+  useEffect(() => {
+    async function loadBackendData() {
+      try {
+        const [health, backendMeals] = await Promise.all([fetchHealth(), fetchMeals()])
+        setBackendHealth(health)
+        setMealDataset(backendMeals)
+        setRecommendedMeals(backendMeals)
+        setBackendError("")
+        setIsOfflineMode(false)
+      } catch {
+        setBackendError("AI 後端尚未啟動，請先啟動 FastAPI server。")
+        setIsOfflineMode(true)
+      }
+    }
 
-  const recommendedMeals = useMemo(
-    () =>
-      mealDataset.filter((meal) => {
-        const matchesGoal = meal.goals.includes(goal)
-        const matchesTags = selectedTags.every((tag) => meal.tags.includes(tag))
-        const avoidsAllergens = excludedAllergens.every(
-          (allergen) => !meal.allergens.includes(allergen),
-        )
-        const matchesKeyword =
-          normalizedKeyword.length === 0 ||
-          [meal.name, meal.type, meal.reason, ...meal.tags, ...meal.ingredients, ...meal.allergens]
-            .join(" ")
-            .toLowerCase()
-            .includes(normalizedKeyword)
+    void loadBackendData()
+  }, [])
 
-        return matchesGoal && matchesTags && avoidsAllergens && matchesKeyword
-      }),
-    [excludedAllergens, goal, mealDataset, normalizedKeyword, selectedTags],
+  const displayedMeals = hasSearched ? recommendedMeals : mealDataset
+  const aiStatusLabel = backendError ? "未連線" : "已連線"
+  const apiStatusLabel = backendHealth?.aiConfigured ? "已設定" : "未設定"
+
+  const localRecommendation = useMemo(
+    () => filterLocalMeals(mealDataset, goal, selectedTags, excludedAllergens, keyword),
+    [excludedAllergens, goal, keyword, mealDataset, selectedTags],
   )
 
-  const handleAnalyzeMeal = () => {
-    const result = createDemoAnalysis({ text: description, link: mealLink, imageName })
-    setAnalysisResult(result)
-    setAnalysisMessage("已產生示範分析結果，可檢視後加入餐點資料集。")
+  const handleAnalyzeMeal = async () => {
+    setIsAnalyzing(true)
+    setAnalysisError("")
+    setAnalysisMessage("")
+
+    try {
+      let result: Meal
+      if (imageFile) {
+        result = await analyzeImage(imageFile)
+      } else if (mealLink.trim()) {
+        result = await analyzeUrl(mealLink.trim())
+      } else {
+        result = await analyzeText(description.trim())
+      }
+      setAnalysisResult(result)
+      setAnalysisMessage("AI 分析完成，可檢視後加入餐點資料集。")
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "AI 分析失敗。")
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
-  const handleAddAnalysis = () => {
+  const handleAddAnalysis = async () => {
     if (!analysisResult) return
 
-    const newMeal = {
-      ...analysisResult,
-      id: `ai-${Date.now()}`,
+    try {
+      const savedMeal = isOfflineMode ? analysisResult : await addMeal(analysisResult)
+      setMealDataset((current) => [savedMeal, ...current])
+      setRecommendedMeals((current) => [savedMeal, ...current])
+      setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，並可用於推薦。`)
+      setAnalysisError("")
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "加入餐點資料集失敗。")
     }
-    setMealDataset((current) => [newMeal, ...current])
-    setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，並可用於推薦。`)
   }
 
-  const handleRecommend = () => {
+  const handleRecommend = async () => {
     setHasSearched(true)
+    let results = localRecommendation
+
+    if (!isOfflineMode) {
+      try {
+        results = await recommendMeals({
+          healthGoal: goal,
+          tags: selectedTags,
+          excludedIngredients: excludedAllergens,
+          keyword: keyword.trim() || null,
+        })
+        setBackendError("")
+      } catch {
+        setBackendError("AI 後端尚未啟動，請先啟動 FastAPI server。")
+        setIsOfflineMode(true)
+      }
+    }
+
+    setRecommendedMeals(results)
     setHistory((records) =>
       [
         {
@@ -288,14 +235,12 @@ export function App() {
           tags: selectedTags,
           excludedAllergens,
           keyword: keyword.trim(),
-          resultCount: recommendedMeals.length,
+          resultCount: results.length,
         },
         ...records,
       ].slice(0, 5),
     )
   }
-
-  const displayedMeals = hasSearched ? recommendedMeals : mealDataset
 
   return (
     <div className="app-shell">
@@ -306,7 +251,7 @@ export function App() {
           </div>
           <div>
             <strong>智慧飲食建議系統</strong>
-            <span>AI 分析與餐點推薦</span>
+            <span>OpenAI 後端分析</span>
           </div>
         </div>
         <nav>
@@ -342,9 +287,8 @@ export function App() {
           <div className="eyebrow">Smart Diet Recommendation System</div>
           <h1>智慧飲食建議系統</h1>
           <p>
-            本系統展示 AI
-            餐點分析、資料集擴充與條件式推薦流程。使用者可輸入餐點文字、上傳照片或貼上連結，
-            取得示範分析結果並加入餐點資料集，再用於後續推薦。
+            本系統包含 React 前端與 FastAPI 後端。正式 AI 分析會透過後端呼叫 OpenAI API，
+            使用者可用文字、圖片或連結分析餐點，並將結果加入餐點資料集。
           </p>
           <div className="hero-actions">
             <a className="primary-action" href="#ai-analysis">
@@ -369,13 +313,19 @@ export function App() {
           </div>
         </section>
 
+        {backendError ? (
+          <p className="status-message">{backendError} 目前為離線展示模式。</p>
+        ) : null}
+
         <section className="section" id="ai-analysis">
           <div className="section-heading">
             <div>
-              <div className="eyebrow">AI Demo</div>
+              <div className="eyebrow">OpenAI Analysis</div>
               <h2>AI 餐點分析與資料集擴充</h2>
             </div>
-            <p>目前為示範分析結果，正式版本需透過後端串接 OpenAI API。</p>
+            <p>
+              AI 後端狀態：{aiStatusLabel}，OpenAI API 狀態：{apiStatusLabel}
+            </p>
           </div>
 
           <div className="analysis-panel">
@@ -397,9 +347,9 @@ export function App() {
                   id="meal-image"
                   type="file"
                   accept="image/*"
-                  onChange={(event) => setImageName(event.target.files?.[0]?.name ?? "")}
+                  onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
                 />
-                <span className="helper-text">{imageName || "尚未選擇餐點照片"}</span>
+                <span className="helper-text">{imageFile?.name || "尚未選擇餐點照片"}</span>
               </div>
             </div>
             <label className="control-group">
@@ -411,10 +361,15 @@ export function App() {
                 placeholder="貼上餐點介紹或菜單網址"
               />
             </label>
-            <button className="primary-action recommend-button" onClick={handleAnalyzeMeal}>
-              AI 分析餐點
+            <button
+              className="primary-action recommend-button"
+              onClick={handleAnalyzeMeal}
+              disabled={isAnalyzing}
+            >
+              {isAnalyzing ? "分析中..." : "AI 分析餐點"}
             </button>
             {analysisMessage ? <p className="status-message">{analysisMessage}</p> : null}
+            {analysisError ? <p className="error-message">{analysisError}</p> : null}
 
             {analysisResult ? (
               <div className="analysis-result" aria-label="AI 分析結果">

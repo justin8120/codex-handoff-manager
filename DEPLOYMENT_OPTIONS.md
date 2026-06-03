@@ -1,53 +1,69 @@
 # Deployment Options
 
-## Selected Option: GitHub Pages
+## Current Setup
 
-The project is configured to deploy the 智慧飲食建議系統 frontend through GitHub Actions to GitHub Pages.
+GitHub Pages remains the deployment target for the React frontend only.
 
 - GitHub repository: https://github.com/justin8120/codex-handoff-manager
 - GitHub Pages URL: https://justin8120.github.io/codex-handoff-manager/
-- CI workflow: passed
-- Deploy GitHub Pages workflow: passed
-- latest confirmed successful workflow commit: a87a459
+- Frontend env var: `VITE_API_BASE_URL`
+- Backend env var: `OPENAI_API_KEY`
 
-## GitHub Pages
+GitHub Pages cannot run FastAPI and cannot safely store OpenAI API keys. The OpenAI API must be called from the backend.
 
-GitHub Pages remains the current best fit for the frontend demo because the app is a static React + Vite展示網站 and the repository already uses GitHub Actions. It can host the UI, static assets, demo analysis flow, recommendation UI, and in-memory dataset expansion.
+## Frontend: GitHub Pages
 
-GitHub Pages cannot safely host secrets or run a private backend. OpenAI API Key must not be placed in the frontend. A formal AI version that analyzes images, links, menu pages, and nutrition data needs a separate backend deployment.
+GitHub Pages is still suitable for:
 
-Repository pages use a path like:
+- React + Vite static frontend
+- UI for AI meal analysis
+- Offline展示模式
+- Calling a separately deployed backend through `VITE_API_BASE_URL`
 
-```text
-https://使用者名稱.github.io/repository-name/
-```
+It is not suitable for:
 
-For that reason, `vite.config.ts` sets the production `base` from `GITHUB_REPOSITORY` when the workflow runs on GitHub Actions. Local development and local production build remain unaffected.
+- Running Python / FastAPI
+- Storing `OPENAI_API_KEY`
+- Calling OpenAI directly from browser code
 
-Deployment flow:
+## Backend Deployment Options
+
+FastAPI should be deployed separately to a service that can store environment variables securely.
+
+Recommended options:
+
+- Render
+- Railway
+- Fly.io
+- A VPS or school server with HTTPS
+
+Backend deployment must set:
 
 ```bash
-npm ci
-npm run validate
-npm run build
-upload dist
-deploy to GitHub Pages
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4.1-mini
+FRONTEND_ORIGIN=https://justin8120.github.io
 ```
 
-## Backend Requirement For Real AI
+After deployment, set the frontend build variable:
 
-The current frontend provides demo fallback analysis only. To support real OpenAI API calls, image understanding, link scraping, and nutrition data lookup, deploy a backend separately. The frontend should send text, uploaded image metadata or image files, and URLs to that backend. The backend should own API keys, model calls, validation, and nutrition-source integration.
+```bash
+VITE_API_BASE_URL=https://your-backend.example.com
+```
 
-## Vercel
+## OpenAI API Key Safety
 
-Vercel supports both frontend hosting and serverless functions, so it can be considered if the project later needs a lightweight backend in the same platform. The current GitHub Pages setup is still sufficient for the frontend demo.
+Never place `OPENAI_API_KEY` in:
 
-## Netlify
+- frontend source code
+- `.env` files committed to git
+- GitHub Pages static assets
+- browser-visible JavaScript bundles
 
-Netlify supports static hosting and serverless functions. It is a reasonable alternative if the project later needs Netlify Functions for a small backend. The current project does not require moving away from GitHub Pages for the frontend.
+Only the FastAPI backend should read and use the key.
 
 ## Risks / Follow-Ups
 
 - automated visual diff is not configured
 - project documents should stay synchronized after deployment changes
-- production AI analysis requires backend deployment and OpenAI API integration
+- backend production deployment is still required for real AI analysis on the public GitHub Pages site
