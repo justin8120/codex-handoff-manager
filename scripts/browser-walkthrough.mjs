@@ -321,38 +321,78 @@ async function main() {
         title: document.querySelector("h1")?.textContent,
         nav: [...document.querySelectorAll("nav a")].map((a) => a.textContent.trim()),
         metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim()),
-        mealData: [...document.querySelectorAll("#meal-data .meal-card h3")].map((heading) => heading.textContent.trim())
+        aiHeading: document.querySelector("#ai-analysis h2")?.textContent,
+        mealDataset: [...document.querySelectorAll("#meal-dataset .meal-card h3")].map((heading) => heading.textContent.trim())
       }))()`,
     )
     assert(desktop.title === "智慧飲食建議系統", "Hero title is not readable")
     assert(
-      ["系統介紹", "餐點推薦", "推薦結果", "餐點資料", "查詢紀錄"].every((label) =>
+      ["系統介紹", "AI 餐點分析", "餐點推薦", "推薦結果", "餐點資料集", "查詢紀錄"].every((label) =>
         desktop.nav.includes(label),
       ),
       "Navigation labels are incomplete",
     )
     assert(desktop.metrics.join(",") === "9,5,4", "Metrics did not match expected meal data")
+    assert(desktop.aiHeading === "AI 餐點分析與資料集擴充", "AI analysis section was not rendered")
     assert(
-      desktop.mealData.length === 9 && desktop.mealData.includes("茶葉蛋"),
-      "Meal data section did not render the complete dataset",
+      desktop.mealDataset.length === 9 && desktop.mealDataset.includes("茶葉蛋"),
+      "Meal dataset section did not render the complete dataset",
     )
     if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "desktop.png")
 
-    const teaEggSearch = await evaluate(
+    const aiAnalysis = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        const textarea = document.querySelector("textarea");
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+        setter.call(textarea, "炸雞");
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+        [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "AI 分析餐點").click();
+        setTimeout(() => resolve({
+          result: document.querySelector(".analysis-result")?.textContent ?? "",
+          datasetCount: document.querySelectorAll("#meal-dataset .meal-card").length
+        }), 100);
+      })`,
+    )
+    assert(
+      aiAnalysis.result.includes("炸雞餐") && aiAnalysis.result.includes("來源類型：文字"),
+      "AI demo analysis did not produce the expected fried chicken result",
+    )
+
+    const datasetExpansion = await evaluate(
+      client,
+      sessionId,
+      `new Promise((resolve) => {
+        [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "加入餐點資料集").click();
+        setTimeout(() => resolve({
+          message: document.querySelector(".status-message")?.textContent ?? "",
+          meals: [...document.querySelectorAll("#meal-dataset .meal-card h3")].map((heading) => heading.textContent.trim())
+        }), 100);
+      })`,
+    )
+    assert(
+      datasetExpansion.message.includes("已加入餐點資料集") &&
+        datasetExpansion.meals.includes("炸雞餐") &&
+        datasetExpansion.meals.length === 10,
+      "AI analysis result was not added to the meal dataset",
+    )
+
+    const recommendationFlow = await evaluate(
       client,
       sessionId,
       `new Promise((resolve) => {
         const input = document.querySelector('input[type="search"]');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        setter.call(input, "茶葉蛋");
+        setter.call(input, "炸雞");
         input.dispatchEvent(new Event("input", { bubbles: true }));
-        document.querySelector(".recommend-button").click();
+        [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "搜尋 / 推薦").click();
         setTimeout(() => resolve([...document.querySelectorAll("#results .meal-card h3")].map((heading) => heading.textContent.trim())), 100);
       })`,
     )
     assert(
-      teaEggSearch.length === 1 && teaEggSearch.includes("茶葉蛋"),
-      "Searching for tea egg did not isolate the matching meal",
+      recommendationFlow.length === 1 && recommendationFlow.includes("炸雞餐"),
+      "Recommendation flow did not use the expanded dataset",
     )
 
     const seafoodFilter = await evaluate(
@@ -364,7 +404,7 @@ async function main() {
         setter.call(input, "");
         input.dispatchEvent(new Event("input", { bubbles: true }));
         document.querySelector("#allergen-海鮮").click();
-        document.querySelector(".recommend-button").click();
+        [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "搜尋 / 推薦").click();
         setTimeout(() => resolve({
           meals: [...document.querySelectorAll("#results .meal-card h3")].map((heading) => heading.textContent.trim()),
           history: document.querySelector("#history")?.textContent ?? ""
@@ -385,7 +425,7 @@ async function main() {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
         setter.call(input, "不存在的餐點");
         input.dispatchEvent(new Event("input", { bubbles: true }));
-        document.querySelector(".recommend-button").click();
+        [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "搜尋 / 推薦").click();
         setTimeout(() => resolve(document.querySelector("#results .empty-state")?.textContent ?? ""), 100);
       })`,
     )
@@ -398,21 +438,21 @@ async function main() {
       client,
       sessionId,
       `new Promise((resolve) => {
-        document.querySelector('a[href="#meal-data"]').click();
+        document.querySelector('a[href="#meal-dataset"]').click();
         setTimeout(() => resolve({
           hash: location.hash,
-          heading: document.querySelector("#meal-data h2")?.textContent,
-          top: Math.round(document.querySelector("#meal-data").getBoundingClientRect().top),
-          bottom: Math.round(document.querySelector("#meal-data").getBoundingClientRect().bottom),
+          heading: document.querySelector("#meal-dataset h2")?.textContent,
+          top: Math.round(document.querySelector("#meal-dataset").getBoundingClientRect().top),
+          bottom: Math.round(document.querySelector("#meal-dataset").getBoundingClientRect().bottom),
           height: window.innerHeight
         }), 600);
       })`,
     )
-    assert(anchorResult.hash === "#meal-data", "Anchor navigation did not update the hash")
-    assert(anchorResult.heading === "餐點資料", "Meal data section heading was not reached")
+    assert(anchorResult.hash === "#meal-dataset", "Anchor navigation did not update the hash")
+    assert(anchorResult.heading === "餐點資料集", "Meal dataset section heading was not reached")
     assert(
       anchorResult.top < anchorResult.height && anchorResult.bottom > 0,
-      "Meal data section was not visible after anchor navigation",
+      "Meal dataset section was not visible after anchor navigation",
     )
 
     await client.send(
@@ -476,8 +516,10 @@ async function main() {
     client.close()
 
     console.log("Browser walkthrough passed")
-    console.log("- Meal data section rendered all meals")
-    console.log("- Tea egg search returned the matching meal")
+    console.log("- AI analysis section rendered")
+    console.log("- Text-based demo analysis produced a meal result")
+    console.log("- Analysis result was added to the meal dataset")
+    console.log("- Recommendation flow used the expanded dataset")
     console.log("- Seafood exclusion removed seafood meals")
     console.log("- Empty recommendation state appeared for unmatched search")
     console.log("- Mobile layout collapsed without horizontal overflow")

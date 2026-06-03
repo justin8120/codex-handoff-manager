@@ -202,6 +202,7 @@ h3 {
 
 .metrics div,
 .recommendation-panel,
+.analysis-panel,
 .meal-card,
 .history-item {
   border: 1px solid #dce3ee;
@@ -242,7 +243,8 @@ h3 {
   max-width: 520px;
 }
 
-.recommendation-panel {
+.recommendation-panel,
+.analysis-panel {
   display: grid;
   gap: 20px;
   padding: 20px;
@@ -266,6 +268,9 @@ h3 {
 }
 
 .control-group select,
+.control-group input[type="url"],
+.control-group input[type="file"],
+.control-group textarea,
 .search-field {
   min-height: 42px;
   border: 1px solid #c9d4e3;
@@ -273,10 +278,46 @@ h3 {
   background: #ffffff;
 }
 
-.control-group select {
+.control-group select,
+.control-group input[type="url"],
+.control-group input[type="file"],
+.control-group textarea {
   width: 100%;
   padding: 0 12px;
   color: #172033;
+}
+
+.control-group textarea {
+  min-height: 120px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.control-group input[type="file"] {
+  padding: 9px 12px;
+}
+
+.notice,
+.status-message,
+.helper-text,
+.source-note {
+  color: #607086;
+}
+
+.notice,
+.status-message {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f6f8fb;
+}
+
+.analysis-result {
+  display: grid;
+  gap: 12px;
+}
+
+.analysis-result .utility-button {
+  width: fit-content;
 }
 
 fieldset {

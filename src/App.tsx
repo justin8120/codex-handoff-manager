@@ -5,6 +5,7 @@ import {
   History,
   Search,
   ShieldCheck,
+  Sparkles,
   SlidersHorizontal,
   Utensils,
 } from "lucide-react"
@@ -27,6 +28,12 @@ type QueryRecord = {
   resultCount: number
 }
 
+type DemoAnalysisInput = {
+  text: string
+  link: string
+  imageName: string
+}
+
 const defaultGoal: HealthGoal = "均衡飲食"
 
 function toggleValue<T>(values: T[], value: T) {
@@ -35,6 +42,138 @@ function toggleValue<T>(values: T[], value: T) {
 
 function formatList(values: string[]) {
   return values.length > 0 ? values.join("、") : "未指定"
+}
+
+function includesAny(text: string, keywords: string[]) {
+  return keywords.some((keyword) => text.includes(keyword))
+}
+
+function getSourceType(input: DemoAnalysisInput): Meal["sourceType"] {
+  if (input.imageName) return "圖片"
+  if (input.link) return "連結"
+  return "文字"
+}
+
+function createDemoAnalysis(input: DemoAnalysisInput): Meal {
+  const sourceText = `${input.text} ${input.link} ${input.imageName}`.toLowerCase()
+  const sourceType = getSourceType(input)
+
+  if (includesAny(sourceText, ["茶葉蛋", "tea egg"])) {
+    return {
+      id: "ai-preview-tea-egg",
+      name: "茶葉蛋",
+      type: "點心",
+      calories: 80,
+      protein: 7,
+      tags: ["低卡", "高蛋白", "低脂"],
+      goals: ["減脂", "均衡飲食", "健康維持"],
+      ingredients: ["雞蛋", "茶葉", "醬油", "香料"],
+      allergens: [],
+      reason: "示範分析判斷此餐點熱量低且含蛋白質，適合作為輕量補給。",
+      confidence: 0.92,
+      sourceType,
+    }
+  }
+
+  if (includesAny(sourceText, ["炸雞", "fried chicken"])) {
+    return {
+      id: "ai-preview-fried-chicken",
+      name: "炸雞餐",
+      type: "速食主餐",
+      calories: 720,
+      protein: 32,
+      tags: ["高蛋白"],
+      goals: ["均衡飲食"],
+      ingredients: ["雞肉", "麵衣", "食用油", "香料"],
+      allergens: [],
+      reason: "示範分析判斷此餐點蛋白質不低，但油炸烹調使熱量偏高，建議控制份量。",
+      confidence: 0.78,
+      sourceType,
+    }
+  }
+
+  if (includesAny(sourceText, ["雞胸", "chicken breast"])) {
+    return {
+      id: "ai-preview-chicken-breast",
+      name: "雞胸肉便當",
+      type: "便當",
+      calories: 480,
+      protein: 38,
+      tags: ["高蛋白", "低脂", "健康餐"],
+      goals: ["減脂", "增肌", "均衡飲食"],
+      ingredients: ["雞胸肉", "白飯", "青菜"],
+      allergens: [],
+      reason: "示範分析判斷雞胸肉是低脂高蛋白來源，適合減脂或增肌飲食。",
+      confidence: 0.88,
+      sourceType,
+    }
+  }
+
+  if (includesAny(sourceText, ["鮭魚", "蝦", "海鮮", "salmon", "shrimp", "seafood"])) {
+    return {
+      id: "ai-preview-seafood",
+      name: "海鮮蛋白餐",
+      type: "主餐",
+      calories: 430,
+      protein: 30,
+      tags: ["高蛋白", "低脂", "健康餐"],
+      goals: ["減脂", "均衡飲食", "健康維持"],
+      ingredients: ["魚片", "蝦仁", "蔬菜", "米飯"],
+      allergens: ["海鮮"],
+      reason: "示範分析判斷此餐點以海鮮蛋白為主，脂肪較低，但海鮮過敏者應排除。",
+      confidence: 0.82,
+      sourceType,
+    }
+  }
+
+  if (includesAny(sourceText, ["牛肉", "beef"])) {
+    return {
+      id: "ai-preview-beef",
+      name: "牛肉蔬菜飯",
+      type: "主餐",
+      calories: 610,
+      protein: 40,
+      tags: ["高蛋白", "健康餐"],
+      goals: ["增肌", "均衡飲食"],
+      ingredients: ["牛肉", "米飯", "青菜"],
+      allergens: ["牛肉"],
+      reason: "示範分析判斷牛肉提供較高蛋白與熱量，適合訓練日補充。",
+      confidence: 0.84,
+      sourceType,
+    }
+  }
+
+  if (includesAny(sourceText, ["豆腐", "蔬食", "素食", "tofu", "veggie"])) {
+    return {
+      id: "ai-preview-veggie",
+      name: "豆腐蔬菜碗",
+      type: "素食主餐",
+      calories: 410,
+      protein: 22,
+      tags: ["低卡", "低脂", "健康餐", "素食"],
+      goals: ["減脂", "均衡飲食", "健康維持"],
+      ingredients: ["豆腐", "糙米", "蔬菜"],
+      allergens: [],
+      reason: "示範分析判斷此餐點以植物性蛋白與蔬菜為主，適合素食與均衡飲食。",
+      confidence: 0.86,
+      sourceType,
+    }
+  }
+
+  return {
+    id: "ai-preview-general",
+    name: input.text.trim() || input.imageName || "連結餐點分析",
+    type: "綜合餐",
+    calories: 520,
+    protein: 24,
+    tags: ["健康餐"],
+    goals: ["均衡飲食", "健康維持"],
+    ingredients: ["主食", "蛋白質", "蔬菜"],
+    allergens: [],
+    reason: "示範分析根據輸入推估為一般均衡餐點；正式版本需由後端串接 AI 與營養資料來源。",
+    confidence: 0.62,
+    sourceType,
+  }
 }
 
 function MealCard({ meal }: { meal: Meal }) {
@@ -76,23 +215,36 @@ function MealCard({ meal }: { meal: Meal }) {
         <strong>推薦原因：</strong>
         {meal.reason}
       </p>
+      {meal.sourceType || meal.confidence ? (
+        <p className="source-note">
+          {meal.sourceType ? `來源類型：${meal.sourceType}` : null}
+          {meal.sourceType && meal.confidence ? "，" : null}
+          {meal.confidence ? `信心分數：${Math.round(meal.confidence * 100)}%` : null}
+        </p>
+      ) : null}
     </article>
   )
 }
 
 export function App() {
+  const [mealDataset, setMealDataset] = useState<Meal[]>(meals)
   const [goal, setGoal] = useState<HealthGoal>(defaultGoal)
   const [selectedTags, setSelectedTags] = useState<DietTag[]>([])
   const [excludedAllergens, setExcludedAllergens] = useState<Allergen[]>([])
   const [keyword, setKeyword] = useState("")
   const [hasSearched, setHasSearched] = useState(false)
   const [history, setHistory] = useState<QueryRecord[]>([])
+  const [description, setDescription] = useState("")
+  const [mealLink, setMealLink] = useState("")
+  const [imageName, setImageName] = useState("")
+  const [analysisResult, setAnalysisResult] = useState<Meal | null>(null)
+  const [analysisMessage, setAnalysisMessage] = useState("")
 
   const normalizedKeyword = keyword.trim().toLowerCase()
 
   const recommendedMeals = useMemo(
     () =>
-      meals.filter((meal) => {
+      mealDataset.filter((meal) => {
         const matchesGoal = meal.goals.includes(goal)
         const matchesTags = selectedTags.every((tag) => meal.tags.includes(tag))
         const avoidsAllergens = excludedAllergens.every(
@@ -107,8 +259,25 @@ export function App() {
 
         return matchesGoal && matchesTags && avoidsAllergens && matchesKeyword
       }),
-    [excludedAllergens, goal, normalizedKeyword, selectedTags],
+    [excludedAllergens, goal, mealDataset, normalizedKeyword, selectedTags],
   )
+
+  const handleAnalyzeMeal = () => {
+    const result = createDemoAnalysis({ text: description, link: mealLink, imageName })
+    setAnalysisResult(result)
+    setAnalysisMessage("已產生示範分析結果，可檢視後加入餐點資料集。")
+  }
+
+  const handleAddAnalysis = () => {
+    if (!analysisResult) return
+
+    const newMeal = {
+      ...analysisResult,
+      id: `ai-${Date.now()}`,
+    }
+    setMealDataset((current) => [newMeal, ...current])
+    setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，並可用於推薦。`)
+  }
 
   const handleRecommend = () => {
     setHasSearched(true)
@@ -126,7 +295,7 @@ export function App() {
     )
   }
 
-  const displayedMeals = hasSearched ? recommendedMeals : meals
+  const displayedMeals = hasSearched ? recommendedMeals : mealDataset
 
   return (
     <div className="app-shell">
@@ -137,13 +306,17 @@ export function App() {
           </div>
           <div>
             <strong>智慧飲食建議系統</strong>
-            <span>依需求推薦餐點</span>
+            <span>AI 分析與餐點推薦</span>
           </div>
         </div>
         <nav>
           <a href="#home">
             <Utensils size={18} aria-hidden="true" />
             系統介紹
+          </a>
+          <a href="#ai-analysis">
+            <Sparkles size={18} aria-hidden="true" />
+            AI 餐點分析
           </a>
           <a href="#recommendation">
             <SlidersHorizontal size={18} aria-hidden="true" />
@@ -153,9 +326,9 @@ export function App() {
             <ShieldCheck size={18} aria-hidden="true" />
             推薦結果
           </a>
-          <a href="#meal-data">
+          <a href="#meal-dataset">
             <Database size={18} aria-hidden="true" />
-            餐點資料
+            餐點資料集
           </a>
           <a href="#history">
             <History size={18} aria-hidden="true" />
@@ -169,20 +342,21 @@ export function App() {
           <div className="eyebrow">Smart Diet Recommendation System</div>
           <h1>智慧飲食建議系統</h1>
           <p>
-            本系統可依照使用者的健康目標、飲食偏好、搜尋關鍵字，以及過敏原或禁忌食材，
-            從餐點資料中推薦合適餐點並說明推薦原因。
+            本系統展示 AI
+            餐點分析、資料集擴充與條件式推薦流程。使用者可輸入餐點文字、上傳照片或貼上連結，
+            取得示範分析結果並加入餐點資料集，再用於後續推薦。
           </p>
           <div className="hero-actions">
-            <a className="primary-action" href="#recommendation">
-              開始推薦
+            <a className="primary-action" href="#ai-analysis">
+              AI 分析餐點
             </a>
-            <a href="#meal-data">查看餐點資料</a>
+            <a href="#meal-dataset">查看餐點資料集</a>
           </div>
         </section>
 
         <section className="metrics" aria-label="餐點資料概況">
           <div>
-            <span>{meals.length}</span>
+            <span>{mealDataset.length}</span>
             <p>筆餐點資料</p>
           </div>
           <div>
@@ -192,6 +366,64 @@ export function App() {
           <div>
             <span>{allergens.length}</span>
             <p>種禁忌食材</p>
+          </div>
+        </section>
+
+        <section className="section" id="ai-analysis">
+          <div className="section-heading">
+            <div>
+              <div className="eyebrow">AI Demo</div>
+              <h2>AI 餐點分析與資料集擴充</h2>
+            </div>
+            <p>目前為示範分析結果，正式版本需透過後端串接 OpenAI API。</p>
+          </div>
+
+          <div className="analysis-panel">
+            <p className="notice">
+              AI 分析結果僅供參考，實際營養數值仍需以餐點標示或專業資料為準。
+            </p>
+            <div className="control-row">
+              <label className="control-group">
+                文字描述
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="例如：雞胸肉便當，白飯半碗，青菜"
+                />
+              </label>
+              <div className="control-group">
+                <label htmlFor="meal-image">圖片上傳</label>
+                <input
+                  id="meal-image"
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => setImageName(event.target.files?.[0]?.name ?? "")}
+                />
+                <span className="helper-text">{imageName || "尚未選擇餐點照片"}</span>
+              </div>
+            </div>
+            <label className="control-group">
+              連結輸入
+              <input
+                type="url"
+                value={mealLink}
+                onChange={(event) => setMealLink(event.target.value)}
+                placeholder="貼上餐點介紹或菜單網址"
+              />
+            </label>
+            <button className="primary-action recommend-button" onClick={handleAnalyzeMeal}>
+              AI 分析餐點
+            </button>
+            {analysisMessage ? <p className="status-message">{analysisMessage}</p> : null}
+
+            {analysisResult ? (
+              <div className="analysis-result" aria-label="AI 分析結果">
+                <MealCard meal={analysisResult} />
+                <button className="utility-button" onClick={handleAddAnalysis}>
+                  加入餐點資料集
+                </button>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -302,17 +534,17 @@ export function App() {
           </div>
         </section>
 
-        <section className="section" id="meal-data">
+        <section className="section" id="meal-dataset">
           <div className="section-heading">
             <div>
-              <div className="eyebrow">Meal Data</div>
-              <h2>餐點資料</h2>
+              <div className="eyebrow">Dataset</div>
+              <h2>餐點資料集</h2>
             </div>
             <p>完整列出目前系統用來推薦的餐點資料，包含營養資訊、飲食標籤、主要食材與禁忌食材。</p>
           </div>
 
-          <div className="meal-data-grid" aria-label="完整餐點資料">
-            {meals.map((meal) => (
+          <div className="meal-data-grid" aria-label="完整餐點資料集">
+            {mealDataset.map((meal) => (
               <MealCard meal={meal} key={meal.id} />
             ))}
           </div>

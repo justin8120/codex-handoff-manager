@@ -15,6 +15,8 @@ export type Meal = {
   ingredients: string[]
   allergens: Allergen[]
   reason: string
+  confidence?: number
+  sourceType?: "文字" | "圖片" | "連結" | "資料集"
 }
 
 export const healthGoals: HealthGoal[] = ["減脂", "增肌", "均衡飲食", "健康維持"]
@@ -35,6 +37,7 @@ export const meals: Meal[] = [
     ingredients: ["雞胸肉", "糙米", "花椰菜", "水煮蛋"],
     allergens: [],
     reason: "蛋白質充足且油脂較低，適合需要控制熱量又維持飽足感的使用者。",
+    sourceType: "資料集",
   },
   {
     id: "tea-egg",
@@ -47,6 +50,7 @@ export const meals: Meal[] = [
     ingredients: ["雞蛋", "茶葉", "醬油", "香料"],
     allergens: [],
     reason: "熱量低且容易取得，適合作為補充蛋白質的小點心。",
+    sourceType: "資料集",
   },
   {
     id: "salmon-salad",
@@ -59,6 +63,7 @@ export const meals: Meal[] = [
     ingredients: ["鮭魚", "生菜", "番茄", "酪梨"],
     allergens: ["海鮮"],
     reason: "提供優質蛋白與好油脂，適合想吃清爽主餐的人。",
+    sourceType: "資料集",
   },
   {
     id: "tofu-veggie-bowl",
@@ -71,6 +76,7 @@ export const meals: Meal[] = [
     ingredients: ["板豆腐", "糙米", "菠菜", "菇類"],
     allergens: [],
     reason: "以植物性蛋白搭配高纖蔬菜，適合素食與日常均衡飲食。",
+    sourceType: "資料集",
   },
   {
     id: "oat-yogurt-cup",
@@ -83,6 +89,7 @@ export const meals: Meal[] = [
     ingredients: ["燕麥", "希臘優格", "藍莓", "奇亞籽"],
     allergens: ["乳製品"],
     reason: "富含纖維並有穩定蛋白質，適合作為輕量早餐。",
+    sourceType: "資料集",
   },
   {
     id: "beef-veggie-rice",
@@ -95,6 +102,7 @@ export const meals: Meal[] = [
     ingredients: ["牛肉", "糙米", "青花菜", "甜椒"],
     allergens: ["牛肉"],
     reason: "蛋白質與複合碳水比例高，適合訓練日補充能量。",
+    sourceType: "資料集",
   },
   {
     id: "sweet-potato-egg-plate",
@@ -107,6 +115,7 @@ export const meals: Meal[] = [
     ingredients: ["地瓜", "雞蛋", "小黃瓜", "番茄"],
     allergens: [],
     reason: "以天然澱粉搭配蛋白質，適合需要溫和飽足感的餐點。",
+    sourceType: "資料集",
   },
   {
     id: "seafood-congee",
@@ -119,6 +128,7 @@ export const meals: Meal[] = [
     ingredients: ["白米", "蝦仁", "魚片", "青蔥"],
     allergens: ["海鮮"],
     reason: "口感清淡且脂肪較低，適合想吃溫熱主食的人。",
+    sourceType: "資料集",
   },
   {
     id: "veggie-bento",
@@ -131,5 +141,6 @@ export const meals: Meal[] = [
     ingredients: ["毛豆", "糙米", "季節蔬菜", "豆干"],
     allergens: [],
     reason: "蔬菜、豆類與全穀搭配完整，適合追求日常均衡的素食者。",
+    sourceType: "資料集",
   },
 ]
