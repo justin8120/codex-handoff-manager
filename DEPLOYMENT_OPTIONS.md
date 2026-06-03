@@ -7,9 +7,9 @@ GitHub Pages remains the deployment target for the React frontend only.
 - GitHub repository: https://github.com/justin8120/codex-handoff-manager
 - GitHub Pages URL: https://justin8120.github.io/codex-handoff-manager/
 - Frontend env var: `VITE_API_BASE_URL`
-- Backend env var: `OPENAI_API_KEY`
+- Backend env vars: `AI_PROVIDER`, `AI_FALLBACK_ENABLED`, `OPENAI_API_KEY`, `GEMINI_API_KEY`
 
-GitHub Pages cannot run FastAPI and cannot safely store OpenAI API keys. The OpenAI API must be called from the backend.
+GitHub Pages cannot run FastAPI and cannot safely store AI provider keys. OpenAI or Gemini API calls must be made from the backend.
 
 ## Frontend: GitHub Pages
 
@@ -23,8 +23,8 @@ GitHub Pages is still suitable for:
 It is not suitable for:
 
 - Running Python / FastAPI
-- Storing `OPENAI_API_KEY`
-- Calling OpenAI directly from browser code
+- Storing `OPENAI_API_KEY` or `GEMINI_API_KEY`
+- Calling OpenAI or Gemini directly from browser code
 
 ## Backend Deployment Options
 
@@ -40,8 +40,12 @@ Recommended options:
 Backend deployment must set:
 
 ```bash
+AI_PROVIDER=gemini
+AI_FALLBACK_ENABLED=true
 OPENAI_API_KEY=...
+GEMINI_API_KEY=...
 OPENAI_MODEL=gpt-4.1-mini
+GEMINI_MODEL=gemini-2.5-flash-lite
 FRONTEND_ORIGIN=https://justin8120.github.io
 ```
 
@@ -60,7 +64,7 @@ Never place `OPENAI_API_KEY` in:
 - GitHub Pages static assets
 - browser-visible JavaScript bundles
 
-Only the FastAPI backend should read and use the key.
+Only the FastAPI backend should read and use provider keys.
 
 ## Risks / Follow-Ups
 

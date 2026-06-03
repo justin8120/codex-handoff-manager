@@ -79,7 +79,13 @@ function mockOnlineApi() {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith("/api/health")) {
-      return jsonResponse({ status: "ok", aiConfigured: true, model: "gpt-4.1-mini" })
+      return jsonResponse({
+        status: "ok",
+        aiProvider: "gemini",
+        aiConfigured: true,
+        model: "gemini-2.5-flash-lite",
+        fallbackEnabled: true,
+      })
     }
     if (url.endsWith("/api/meals") && init?.method === "POST") return jsonResponse(analysisMeal)
     if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
@@ -109,7 +115,11 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "智慧飲食建議系統" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "AI 餐點分析與資料集擴充" })).toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.getByText("AI 後端狀態：已連線，OpenAI API 狀態：已設定")).toBeInTheDocument(),
+      expect(
+        screen.getByText(
+          "AI 後端狀態：已連線，API 狀態：已設定，Provider：gemini，Model：gemini-2.5-flash-lite，Fallback：啟用",
+        ),
+      ).toBeInTheDocument(),
     )
   })
 

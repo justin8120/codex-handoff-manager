@@ -1,9 +1,11 @@
 import os
+import json
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.models import MealAnalysisResult, RecommendRequest, TextAnalyzeRequest, UrlAnalyzeRequest
 from app.services import openai_meal_analyzer
@@ -13,13 +15,27 @@ from app.storage.meals_store import add_meal, load_meals, recommend_meals
 load_dotenv()
 
 
+class UnicodeEscapedJSONResponse(JSONResponse):
+    def render(self, content: object) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_meals()
     yield
 
 
-app = FastAPI(title="Smart Diet Recommendation API", lifespan=lifespan)
+app = FastAPI(
+    title="Smart Diet Recommendation API",
+    lifespan=lifespan,
+    default_response_class=UnicodeEscapedJSONResponse,
+)
 
 frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 app.add_middleware(
@@ -35,14 +51,13 @@ app.add_middleware(
 def health() -> dict[str, object]:
     return {
         "status": "ok",
-        "aiConfigured": openai_meal_analyzer.is_configured(),
-        "model": os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        **openai_meal_analyzer.provider_status(),
     }
 
 
 @app.post("/api/analyze/text", response_model=MealAnalysisResult)
 def analyze_text(request: TextAnalyzeRequest) -> MealAnalysisResult:
-    return openai_meal_analyzer.analyze_text(request.description)
+    return openai_meal_analyzer.analyze_text(request.content)
 
 
 @app.post("/api/analyze/image", response_model=MealAnalysisResult)

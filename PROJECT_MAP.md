@@ -2,7 +2,7 @@
 
 ## Project
 
-智慧飲食建議系統現在包含前端與後端。前端負責使用者介面、離線展示模式與 GitHub Pages 靜態部署；FastAPI 後端負責 OpenAI Responses API 餐點分析、URL 擷取、圖片分析、餐點資料 JSON 儲存與推薦 API。
+智慧飲食建議系統現在包含前端與後端。前端負責使用者介面、離線展示模式與 GitHub Pages 靜態部署；FastAPI 後端負責 OpenAI / Gemini / mock provider 餐點分析、URL 擷取、圖片分析、餐點資料 JSON 儲存與推薦 API。
 
 ## Frontend Files
 
@@ -17,7 +17,8 @@
 
 - `backend/app/main.py`: FastAPI app、CORS、health、analyze、meals、recommend endpoints。
 - `backend/app/models.py`: Pydantic models：`MealAnalysisResult`、`TextAnalyzeRequest`、`UrlAnalyzeRequest`、`RecommendRequest`。
-- `backend/app/services/openai_meal_analyzer.py`: OpenAI Python SDK + Responses API 串接，使用 JSON schema 要求模型回傳結構化 JSON。
+- `backend/app/services/ai_provider.py`: 解析 `AI_PROVIDER=openai|gemini|mock|auto`、模型、key 與 fallback 設定。
+- `backend/app/services/openai_meal_analyzer.py`: 使用 OpenAI Python SDK 的 chat completions JSON mode 串接 OpenAI 或 Gemini OpenAI compatibility API，並提供 rule-based fallback。
 - `backend/app/services/url_fetcher.py`: 使用 httpx + BeautifulSoup 擷取單一 URL 的 title、meta description 與主要文字。
 - `backend/app/storage/meals_store.py`: JSON 檔案資料讀寫與推薦篩選。
 - `backend/data/meals.json`: 9 筆預設餐點資料與後續新增 AI 分析結果。
@@ -38,13 +39,13 @@
 
 ## OpenAI Flow
 
-後端從 `.env` 讀取 `OPENAI_API_KEY` 與 `OPENAI_MODEL`。`openai_meal_analyzer.py` 使用 OpenAI Python SDK 的 Responses API，並要求模型只回傳符合 `MealAnalysisResult` schema 的 JSON，不回傳 markdown。若 `OPENAI_API_KEY` 未設定，分析 API 回傳清楚錯誤：
+後端從 `.env` 讀取 `AI_PROVIDER`、`AI_FALLBACK_ENABLED`、OpenAI 與 Gemini 相關 key/model。`openai_meal_analyzer.py` 使用 OpenAI Python SDK 的 chat completions JSON mode，並要求模型只回傳符合 `MealAnalysisResult` schema 的 JSON，不回傳 markdown。若 fallback 關閉且 key 未設定，分析 API 回傳清楚錯誤：
 
 ```text
 AI analysis service is not configured. Please set OPENAI_API_KEY.
 ```
 
-OpenAI API Key 不可放在前端，也不可 commit 到 git。
+OpenAI / Gemini API Key 不可放在前端，也不可 commit 到 git。`AI_PROVIDER=auto` 時會優先使用 Gemini key，其次 OpenAI key，若都沒有則使用 mock provider。
 
 ## Validation
 

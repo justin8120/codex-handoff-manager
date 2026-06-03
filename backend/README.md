@@ -9,7 +9,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
-# 在 .env 填入 OPENAI_API_KEY
+# 在 .env 填入 OPENAI_API_KEY 或 GEMINI_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -20,14 +20,19 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# 在 .env 填入 OPENAI_API_KEY
+# 在 .env 填入 OPENAI_API_KEY 或 GEMINI_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
 ## Environment Variables
 
-- `OPENAI_API_KEY`: OpenAI API key，必填才能執行真 AI 分析。
+- `AI_PROVIDER`: `openai`、`gemini`、`mock` 或 `auto`。
+- `AI_FALLBACK_ENABLED`: `true` 時 AI 供應商錯誤會回傳 rule-based fallback，不讓 endpoint 直接 500。
+- `OPENAI_API_KEY`: OpenAI API key。
 - `OPENAI_MODEL`: 預設 `gpt-4.1-mini`。
+- `GEMINI_API_KEY`: Gemini API key。
+- `GEMINI_BASE_URL`: Gemini OpenAI compatibility endpoint。
+- `GEMINI_MODEL`: 預設 `gemini-2.5-flash-lite`。
 - `FRONTEND_ORIGIN`: 前端開發網址，預設 `http://localhost:5173`。
 
 ## API Endpoints
@@ -46,4 +51,4 @@ uvicorn app.main:app --reload --port 8000
 pytest
 ```
 
-測試不會真的呼叫 OpenAI API；未設定 `OPENAI_API_KEY` 時會檢查 API 是否回傳清楚錯誤訊息。
+測試不會真的呼叫 OpenAI 或 Gemini API；會檢查 mock provider、推薦 API、資料集 API，以及 fallback 關閉時未設定 key 的清楚錯誤訊息。

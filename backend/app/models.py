@@ -23,7 +23,12 @@ class MealAnalysisResult(BaseModel):
 
 
 class TextAnalyzeRequest(BaseModel):
-    description: str
+    description: str | None = None
+    text: str | None = None
+
+    @property
+    def content(self) -> str:
+        return self.description or self.text or ""
 
 
 class UrlAnalyzeRequest(BaseModel):

@@ -324,7 +324,12 @@ export function App() {
               <h2>AI 餐點分析與資料集擴充</h2>
             </div>
             <p>
-              AI 後端狀態：{aiStatusLabel}，OpenAI API 狀態：{apiStatusLabel}
+              AI 後端狀態：{aiStatusLabel}，API 狀態：{apiStatusLabel}
+              {backendHealth
+                ? `，Provider：${backendHealth.aiProvider}，Model：${backendHealth.model}，Fallback：${
+                    backendHealth.fallbackEnabled ? "啟用" : "停用"
+                  }`
+                : ""}
             </p>
           </div>
 

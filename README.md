@@ -1,11 +1,13 @@
 # 智慧飲食建議系統
 
-智慧飲食建議系統包含 React + TypeScript + Vite 前端與 FastAPI 後端。前端部署在 GitHub Pages，後端負責安全呼叫 OpenAI API、分析餐點、儲存餐點資料集，並提供推薦 API。
+智慧飲食建議系統包含 React + TypeScript + Vite 前端與 FastAPI 後端。前端部署在 GitHub Pages，後端負責安全呼叫 AI provider、分析餐點、儲存餐點資料集，並提供推薦 API。
 
 ## Features
 
 - 文字描述、圖片上傳、連結輸入三種 AI 餐點分析方式
-- 後端透過 OpenAI Responses API 產生餐點分析 JSON
+- 後端支援 `AI_PROVIDER=openai|gemini|mock|auto`
+- OpenAI 與 Gemini 皆透過 OpenAI Python SDK 的 chat completions JSON mode 產生餐點分析 JSON
+- `AI_FALLBACK_ENABLED=true` 時，quota、auth、model 或 API 錯誤會回傳 rule-based fallback，避免 endpoint 直接 500
 - 分析結果包含餐點名稱、類型、估算熱量、估算蛋白質、標籤、主要食材、過敏原、推薦原因、信心分數與來源類型
 - 可將 AI 分析結果加入餐點資料集，資料會寫回 `backend/data/meals.json`
 - 前端餐點推薦優先呼叫後端 `POST /api/recommend`
@@ -36,21 +38,27 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
-# 在 .env 填入 OPENAI_API_KEY
+# 在 .env 填入 OPENAI_API_KEY 或 GEMINI_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
 `backend/.env`：
 
 ```bash
+AI_PROVIDER=gemini
+AI_FALLBACK_ENABLED=true
+
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-4.1-mini
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+GEMINI_MODEL=gemini-2.5-flash-lite
 FRONTEND_ORIGIN=http://localhost:5173
 ```
 
 ## AI Analysis Flow
 
-- `POST /api/analyze/text`: 使用文字描述呼叫 OpenAI API。
+- `POST /api/analyze/text`: 使用文字描述呼叫目前選定 AI provider。
 - `POST /api/analyze/image`: 圖片轉成 base64 data URL 後交給支援 vision 的模型分析。
 - `POST /api/analyze/url`: 後端只擷取使用者提供的單一 URL，使用 httpx + BeautifulSoup 取得 title、meta description 與主要文字，再交給 OpenAI 分析。
 

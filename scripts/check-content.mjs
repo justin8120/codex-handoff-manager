@@ -29,6 +29,7 @@ const filesToCheck = [
   "backend/requirements.txt",
   "backend/app/main.py",
   "backend/app/models.py",
+  "backend/app/services/ai_provider.py",
   "backend/app/services/openai_meal_analyzer.py",
   "backend/app/services/url_fetcher.py",
   "backend/app/storage/meals_store.py",
