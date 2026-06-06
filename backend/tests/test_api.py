@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.ai_provider import normalize_meal_name
+from app.services.nutrition_enricher import normalize_and_enrich_result, validate_analysis_result
 from app.services.web_food_verifier import rerank_food_candidates
 
 
@@ -17,6 +18,292 @@ def test_normalize_meal_name_maps_romanized_names():
     assert normalize_meal_name("Tendon") == "\u5929\u4e3c"
     assert normalize_meal_name("Curry Rice") == "\u5496\u54e9\u98ef"
     assert normalize_meal_name("Fried Rice") == "\u7092\u98ef"
+
+
+def test_validate_analysis_result_flags_english_meal_name():
+    issues = validate_analysis_result(
+        {
+            "mealName": "Steak and Eggs",
+            "mealType": "\u86cb\u767d\u8cea\u9910",
+            "estimatedCalories": 700,
+            "estimatedProtein": 42,
+            "tags": ["\u725b\u8089"],
+            "mainIngredients": ["\u725b\u6392", "\u96de\u86cb"],
+            "allergens": ["\u86cb"],
+            "recommendationReason": "Steak and Eggs detected from image.",
+        },
+    )
+
+    assert any("mealName" in issue for issue in issues)
+
+
+def test_validate_analysis_result_flags_invalid_ingredients():
+    issues = validate_analysis_result(
+        {
+            "mealName": "\u7d9c\u5408\u9910",
+            "mealType": "\u7d9c\u5408\u9910",
+            "estimatedCalories": 500,
+            "estimatedProtein": 20,
+            "tags": ["\u7d9c\u5408\u9910"],
+            "mainIngredients": ["unknown"],
+            "allergens": [],
+            "recommendationReason": "\u7cfb\u7d71\u5df2\u5b8c\u6210\u9910\u9ede\u5206\u6790\u3002",
+        },
+    )
+
+    assert any("mainIngredients" in issue for issue in issues)
+
+
+def test_validate_analysis_result_rejects_pending_ingredient_placeholder():
+    issues = validate_analysis_result(
+        {
+            "mealName": "\u7591\u4f3c\u9910\u9ede",
+            "mealType": "\u5f85\u78ba\u8a8d",
+            "estimatedCalories": 500,
+            "estimatedProtein": 20,
+            "tags": ["\u5f85\u78ba\u8a8d"],
+            "mainIngredients": ["\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d"],
+            "allergens": [],
+            "recommendationReason": "\u7cfb\u7d71\u7121\u6cd5\u5f9e\u5716\u7247\u4e2d\u7a69\u5b9a\u8fa8\u8b58\u5177\u9ad4\u9910\u9ede\u3002",
+        },
+    )
+
+    assert any("mainIngredients" in issue for issue in issues)
+
+
+def test_validate_analysis_result_rejects_soup_dumpling_with_incomplete_ingredients():
+    issues = validate_analysis_result(
+        {
+            "mealName": "\u6e6f\u5305",
+            "mealType": "\u4e2d\u5f0f\u9ede\u5fc3",
+            "estimatedCalories": 500,
+            "estimatedProtein": 20,
+            "tags": ["\u4e2d\u5f0f"],
+            "mainIngredients": ["\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d"],
+            "allergens": [],
+            "recommendationReason": "\u7cfb\u7d71\u5df2\u6839\u64da\u5019\u9078\u9910\u9ede\u8207\u53ef\u898b\u98df\u6750\u7279\u5fb5\u91cd\u65b0\u6821\u6b63\u8fa8\u8b58\u7d50\u679c\u3002",
+            "confidence": 0.95,
+        },
+    )
+
+    assert any("soup dumpling" in issue or "mainIngredients" in issue for issue in issues)
+
+
+def test_validate_analysis_result_rejects_high_confidence_with_incomplete_ingredients():
+    issues = validate_analysis_result(
+        {
+            "mealName": "\u7591\u4f3c\u9910\u9ede",
+            "mealType": "\u5f85\u78ba\u8a8d",
+            "estimatedCalories": 500,
+            "estimatedProtein": 20,
+            "tags": ["\u5f85\u78ba\u8a8d"],
+            "mainIngredients": ["unknown"],
+            "allergens": [],
+            "recommendationReason": "\u7cfb\u7d71\u7121\u6cd5\u5f9e\u5716\u7247\u4e2d\u7a69\u5b9a\u8fa8\u8b58\u5177\u9ad4\u9910\u9ede\u3002",
+            "confidence": 0.95,
+        },
+    )
+
+    assert any("high confidence" in issue for issue in issues)
+
+
+def test_validate_analysis_result_rejects_generic_recommendation_reason():
+    issues = validate_analysis_result(
+        {
+            "mealName": "\u6e6f\u5305",
+            "mealType": "\u4e2d\u5f0f\u9ede\u5fc3",
+            "estimatedCalories": 380,
+            "estimatedProtein": 16,
+            "tags": ["\u4e2d\u5f0f", "\u9ede\u5fc3"],
+            "mainIngredients": ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"],
+            "allergens": ["\u9ea9\u8cea"],
+            "recommendationReason": "\u7cfb\u7d71\u5df2\u6839\u64da\u5019\u9078\u9910\u9ede\u8207\u53ef\u898b\u98df\u6750\u7279\u5fb5\u91cd\u65b0\u6821\u6b63\u8fa8\u8b58\u7d50\u679c\u3002",
+            "confidence": 0.8,
+        },
+    )
+
+    assert any("recommendationReason" in issue for issue in issues)
+
+
+def test_enrichment_normalizes_steak_and_eggs():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-steak-eggs",
+            "mealName": "Steak and Eggs",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.7,
+            "sourceType": "image",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert result.mealName == "\u725b\u6392\u86cb"
+    assert result.estimatedCalories > 0
+    assert result.estimatedProtein > 0
+    assert result.mainIngredients
+    assert "\u86cb" in result.allergens
+
+
+def test_enrichment_fills_soup_dumpling_ingredients():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-soup-dumpling",
+            "mealName": "\u6e6f\u5305",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.7,
+            "sourceType": "image",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert result.estimatedCalories == 380
+    assert result.estimatedProtein == 16
+    assert result.mainIngredients == ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"]
+    assert "\u9ea9\u8cea" in result.allergens
+
+
+def test_enrichment_fills_butadon_nutrition_when_values_are_zero():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-butadon",
+            "mealName": "\u8c5a\u4e3c",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.7,
+            "sourceType": "image",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert result.mealName == "\u8c5a\u4e3c"
+    assert result.estimatedCalories > 0
+    assert result.estimatedProtein > 0
+    assert result.mainIngredients
+    assert "\u86cb" in result.allergens
+
+
+def test_enrichment_fills_katsudon_nutrition_ingredients_and_allergens():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-katsudon",
+            "mealName": "Katsudon",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.7,
+            "sourceType": "image",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert result.mealName == "\u8c6c\u6392\u4e3c"
+    assert result.estimatedCalories > 0
+    assert result.estimatedProtein > 0
+    assert result.mainIngredients
+    assert "\u86cb" in result.allergens or "\u9ea9\u8cea" in result.allergens
+
+
+def test_enrichment_normalizes_chicken_steak_with_noodles():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-chicken-noodles",
+            "mealName": "Chicken steak with noodles",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.7,
+            "sourceType": "image",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert result.mealName == "\u96de\u6392\u9eb5"
+    assert result.estimatedCalories > 0
+    assert result.estimatedProtein > 0
+    assert result.mainIngredients
+    assert "\u9ea9\u8cea" in result.allergens
+
+
+def test_enrichment_uses_visual_context_for_steak_egg_noodles():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-steak-egg-noodles",
+            "mealName": "Steak and Eggs",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.7,
+            "sourceType": "image",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+        original_text="visible steak, noodles, egg, greens and soup",
+    )
+
+    assert result.mealName == "\u725b\u6392\u86cb\u9eb5"
+    assert result.estimatedCalories > 0
+    assert result.estimatedProtein > 0
+    assert "\u9eb5\u689d" in result.mainIngredients
+    assert "\u9ea9\u8cea" in result.allergens
+
+
+def test_enrichment_uses_original_text_when_result_name_is_generic():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-generic",
+            "mealName": "\u9910\u9ede\u5065\u5eb7\u5efa\u8b70",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.4,
+            "sourceType": "text",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+        original_text="Chicken steak with noodles",
+    )
+
+    assert result.mealName == "\u96de\u6392\u9eb5"
+    assert result.estimatedCalories == 850
+    assert result.estimatedProtein == 38
 
 
 def test_health_reports_backend_status(monkeypatch):
@@ -237,6 +524,196 @@ def test_analyze_image_does_not_500_when_web_verification_fails(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["mealName"] == "\u8c5a\u4e3c"
+
+
+def test_unrecognized_image_fallback_uses_low_confidence_without_pending_placeholder(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("meal.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u7591\u4f3c\u9910\u9ede"
+    assert payload["confidence"] <= 0.4
+    assert "\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d" not in payload["mainIngredients"]
+
+
+def test_analyze_image_rejects_soup_dumpling_guess_without_visual_evidence(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "\u5716\u7247\u4e2d\u9910\u9ede\u7279\u5fb5\u4e0d\u660e\u986f",
+            "candidates": [
+                {
+                    "name": "\u6e6f\u5305",
+                    "confidence": 0.95,
+                    "evidence": ["\u9910\u9ede\u5916\u89c0\u4e0d\u660e\u78ba"],
+                },
+            ],
+        }
+
+    def fail_retry(*args, **kwargs):
+        raise RuntimeError("retry unavailable")
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+    monkeypatch.setattr(openai_meal_analyzer, "_retry_image_correction", fail_retry)
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("meal.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u7591\u4f3c\u9910\u9ede"
+    assert payload["confidence"] <= 0.4
+    assert "\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d" not in payload["mainIngredients"]
+
+
+def test_analyze_image_katsudon_result_is_enriched(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "\u53ef\u898b\u70b8\u8c6c\u6392\u3001\u9eb5\u8863\u3001\u96de\u86cb\u8207\u767d\u98ef",
+            "candidates": [
+                {
+                    "name": "Katsudon",
+                    "confidence": 0.84,
+                    "evidence": ["fried pork cutlet", "breading", "egg", "rice"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("katsudon.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u8c6c\u6392\u4e3c"
+    assert payload["estimatedCalories"] > 0
+    assert payload["estimatedProtein"] > 0
+    assert payload["mainIngredients"]
+    assert "\u86cb" in payload["allergens"] or "\u9ea9\u8cea" in payload["allergens"]
+
+
+def test_analyze_image_english_meal_name_is_translated_and_enriched(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "Chicken steak with noodles, greens and soup",
+            "candidates": [
+                {
+                    "name": "Chicken steak with noodles",
+                    "confidence": 0.82,
+                    "evidence": ["chicken steak", "noodles", "greens"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("meal.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u96de\u6392\u9eb5"
+    assert payload["estimatedCalories"] > 0
+    assert payload["estimatedProtein"] > 0
+    assert payload["mainIngredients"]
+    assert "\u9ea9\u8cea" in payload["allergens"]
+
+
+def test_analyze_image_steak_and_eggs_uses_evidence_for_chinese_noodle_result(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "Steak, egg, noodles, greens and soup are visible",
+            "candidates": [
+                {
+                    "name": "Steak and Eggs",
+                    "confidence": 0.82,
+                    "evidence": ["steak", "egg", "noodles", "greens"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("meal.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u725b\u6392\u86cb\u9eb5"
+    assert "Steak" not in payload["mealName"]
+    assert "Eggs" not in payload["mealName"]
+    assert payload["estimatedCalories"] > 0
+    assert payload["estimatedProtein"] > 0
+    assert payload["mainIngredients"]
+    assert "\u9ea9\u8cea" in payload["allergens"]
+
+
+def test_analyze_endpoints_never_return_zero_nutrition(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    async def fake_fetch_url_summary(url):
+        return "Chicken steak with noodles menu page"
+
+    monkeypatch.setattr(openai_meal_analyzer, "fetch_url_summary", fake_fetch_url_summary)
+
+    text_response = client.post("/api/analyze/text", json={"description": "Chicken steak with noodles"})
+    image_response = client.post(
+        "/api/analyze/image",
+        files={"file": ("Chicken steak with noodles.jpg", b"fake-image", "image/jpeg")},
+    )
+    url_response = client.post("/api/analyze/url", json={"url": "https://example.com/menu"})
+
+    for response in [text_response, image_response, url_response]:
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["estimatedCalories"] > 0
+        assert payload["estimatedProtein"] > 0
+        assert payload["mainIngredients"]
 
 
 def test_mock_provider_applies_bento_chicken_beef_and_peanut_rules(monkeypatch):

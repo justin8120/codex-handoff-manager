@@ -16,6 +16,7 @@ from app.services.ai_provider import (
     normalize_user_facing_list,
     normalize_user_facing_text,
 )
+from app.services.nutrition_enricher import normalize_and_enrich_result, validate_analysis_result
 from app.services.url_fetcher import fetch_url_summary
 from app.services import web_food_verifier
 
@@ -105,6 +106,12 @@ BEEF_EXCLUDED_NOTE = "\u5df2\u6839\u64da\u9700\u6c42\u6392\u9664\u725b\u8089\u30
 DEFAULT_MEAL_NAME = "\u672a\u547d\u540d\u9910\u9ede"
 DEFAULT_MEAL_TYPE = "\u7d9c\u5408\u9910"
 DEFAULT_REASON = "AI \u5df2\u5b8c\u6210\u9910\u9ede\u5206\u6790\u3002"
+SOUP_DUMPLING = "\u6e6f\u5305"
+UNCERTAIN_IMAGE_REASON = (
+    "\u7cfb\u7d71\u7121\u6cd5\u5f9e\u5716\u7247\u4e2d\u7a69\u5b9a\u8fa8\u8b58\u5177\u9ad4\u9910\u9ede\uff0c"
+    "\u5efa\u8b70\u88dc\u5145\u6587\u5b57\u63cf\u8ff0\uff0c\u4f8b\u5982\u9910\u9ede\u540d\u7a31\u6216\u4e3b\u8981\u98df\u6750\uff0c"
+    "\u4ee5\u63d0\u9ad8\u5206\u6790\u6e96\u78ba\u5ea6\u3002"
+)
 
 
 def is_configured() -> bool:
@@ -216,11 +223,16 @@ def _call_chat_completion(
 
 
 def _analyze_image_with_verification(provider_name: str, text: str, image_url: str) -> MealAnalysisResult:
+    provider = get_ai_provider()
+    retry_happened = False
+    fallback_happened = False
     payload = _call_image_candidate_completion(provider_name, text, image_url)
     visual_description = str(payload.get("visualDescription") or payload.get("visual_description") or text)
     candidates = _candidate_list(payload.get("candidates"))
     if not candidates:
-        return _fallback_result(text, "image", confidence=0.45)
+        result = _fallback_result(text, "image", confidence=0.35)
+        _log_image_validation(provider_name, "", result, validate_analysis_result(result), retry_happened, True)
+        return result
 
     try:
         verification = web_food_verifier.verify_food_candidates(candidates, visual_description)
@@ -228,7 +240,29 @@ def _analyze_image_with_verification(provider_name: str, text: str, image_url: s
         print(f"Food candidate verification failed: {error}")
         verification = _local_verification_from_candidates(candidates, visual_description)
 
-    return _meal_from_verification_result(verification, "image", provider_name)
+    result = _meal_from_verification_result(verification, "image", provider_name)
+    raw_name = str(verification.get("verifiedName") or "")
+    validation_context = _verification_context(raw_name, verification, visual_description)
+    issues = _image_validation_errors(result, validation_context)
+    if issues and provider.configured and provider.name in {"openai", "gemini"}:
+        retry_happened = True
+        try:
+            corrected = _retry_image_correction(provider_name, text, image_url, visual_description, candidates, result, issues)
+            corrected_issues = _image_validation_errors(corrected, validation_context)
+            if not corrected_issues:
+                _log_image_validation(provider_name, raw_name, corrected, corrected_issues, retry_happened, fallback_happened)
+                return corrected
+            issues = corrected_issues
+            result = corrected
+        except Exception as error:
+            print(f"Image correction retry failed ({provider_name}): {error}")
+
+    if issues:
+        fallback_happened = True
+        result = _fallback_result(text, "image", confidence=0.35)
+        issues = _image_validation_errors(result, validation_context)
+    _log_image_validation(provider_name, raw_name, result, issues, retry_happened, fallback_happened)
+    return result
 
 
 def _call_image_candidate_completion(provider_name: str, text: str, image_url: str) -> dict[str, Any]:
@@ -248,9 +282,15 @@ def _call_image_candidate_completion(provider_name: str, text: str, image_url: s
                     "Analyze the image in two parts: visualDescription and candidates. "
                     "Do not return a single final answer. candidates must be an array of objects with "
                     "name, confidence, and evidence. Include 3 to 5 plausible meals. "
+                    "Use Traditional Chinese meal names in candidates; avoid generic English names such as "
+                    "Steak and Eggs, Food, Rice Bowl, or Noodles. "
+                    "Each candidate needs at least 3 concrete visual evidence items. "
+                    "If steak, egg, and noodles are visible, prefer \u725b\u6392\u86cb\u9eb5 or \u96de\u6392\u86cb\u9eb5 "
+                    "based on the visible meat. If noodles are visible, do not omit them from the candidate name. "
                     "Pay special attention to butadon (\u8c5a\u4e3c) vs oyakodon (\u89aa\u5b50\u4e3c). "
                     "Do not decide oyakodon from egg and rice alone; look for chicken chunks. "
-                    "If visible meat looks like pork slices, include \u8c5a\u4e3c or \u8c6c\u8089\u4e3c."
+                    "If visible meat looks like pork slices, include \u8c5a\u4e3c or \u8c6c\u8089\u4e3c. "
+                    "If no fried cutlet or breading is visible, do not prefer \u8c6c\u6392\u4e3c."
                 ),
             },
             {
@@ -267,6 +307,64 @@ def _call_image_candidate_completion(provider_name: str, text: str, image_url: s
     if not content:
         raise json.JSONDecodeError("empty model response", "", 0)
     return json.loads(content)
+
+
+def _retry_image_correction(
+    provider_name: str,
+    text: str,
+    image_url: str,
+    visual_description: str,
+    candidates: list[dict[str, Any]],
+    previous_result: MealAnalysisResult,
+    validation_errors: list[str],
+) -> MealAnalysisResult:
+    provider = get_ai_provider()
+    client = (
+        OpenAI(api_key=provider.api_key, base_url=provider.base_url)
+        if provider.base_url
+        else OpenAI(api_key=provider.api_key)
+    )
+    response = client.chat.completions.create(
+        model=provider.model,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are correcting a food image nutrition analysis. Return only valid JSON, no markdown. "
+                    "Use the existing camelCase MealAnalysisResult schema. "
+                    "All user-facing values must be Traditional Chinese. "
+                    "Do not use placeholder ingredients such as \u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d, \u672a\u78ba\u8a8d, or unknown. "
+                    "recommendationReason must cite concrete visible features from the image. "
+                    "If the image evidence is insufficient, return mealName=\u7591\u4f3c\u9910\u9ede, "
+                    "mealType=\u5f85\u78ba\u8a8d, tags=[\u5f85\u78ba\u8a8d], "
+                    "mainIngredients=[\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d], confidence=0.35."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Context or filename: {text}\n"
+                            f"Visual description: {visual_description}\n"
+                            f"Candidates: {json.dumps(candidates, ensure_ascii=False)}\n"
+                            f"Previous result: {previous_result.model_dump_json()}\n"
+                            f"Validation errors: {validation_errors}\n"
+                            "Correct the result so it passes validation."
+                        ),
+                    },
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            },
+        ],
+        response_format={"type": "json_object"},
+    )
+    content = response.choices[0].message.content
+    if not content:
+        raise json.JSONDecodeError("empty correction response", "", 0)
+    payload = json.loads(content)
+    return _normalize_payload(payload, "image", provider_name)
 
 
 def _instructions(source_type: str) -> str:
@@ -302,7 +400,7 @@ def _normalize_payload(payload: dict[str, Any], source_type: str, provider_name:
     payload["sourceType"] = source_type
     payload["createdAt"] = str(payload.get("createdAt") or datetime.now(timezone.utc).isoformat())
     payload["isAiGenerated"] = True
-    return MealAnalysisResult.model_validate(payload)
+    return normalize_and_enrich_result(payload, original_text=str(payload.get("mealName") or ""))
 
 
 def _candidate_list(value: Any) -> list[dict[str, Any]]:
@@ -351,20 +449,65 @@ def _meal_from_verification_result(
         return _oyakodon_result(source_type, confidence=min(confidence, 0.75), provider_name=provider_name)
 
     reason = normalize_user_facing_text(str(verification.get("reason") or DEFAULT_REASON))
-    return MealAnalysisResult(
-        id=f"{provider_name}-{uuid4()}",
-        mealName=name,
-        mealType=normalize_user_facing_text(str(verification.get("verifiedType") or DEFAULT_MEAL_TYPE)),
-        estimatedCalories=0,
-        estimatedProtein=0,
-        tags=[],
-        mainIngredients=[],
-        allergens=[],
-        recommendationReason=reason,
-        confidence=confidence,
-        sourceType=_source_type(source_type),
-        createdAt=datetime.now(timezone.utc).isoformat(),
-        isAiGenerated=True,
+    context_parts = [
+        name,
+        normalize_user_facing_text(str(verification.get("verifiedType") or "")),
+        reason,
+        *normalize_user_facing_list(_string_list(verification.get("matchedEvidence"))),
+    ]
+    return normalize_and_enrich_result(
+        {
+            "id": f"{provider_name}-{uuid4()}",
+            "mealName": name,
+            "mealType": normalize_user_facing_text(str(verification.get("verifiedType") or DEFAULT_MEAL_TYPE)),
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": reason,
+            "confidence": confidence,
+            "sourceType": _source_type(source_type),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+        },
+        original_text=" ".join(context_parts),
+    )
+
+
+def _verification_context(raw_name: str, verification: dict[str, Any], visual_description: str) -> str:
+    return " ".join(
+        [
+            raw_name,
+            visual_description,
+            str(verification.get("verifiedType") or ""),
+            str(verification.get("reason") or ""),
+            *[str(item) for item in _string_list(verification.get("matchedEvidence"))],
+        ],
+    )
+
+
+def _image_validation_errors(result: MealAnalysisResult, context: str) -> list[str]:
+    issues = validate_analysis_result(result)
+    if result.mealName == SOUP_DUMPLING and not _has_soup_dumpling_evidence(context):
+        issues.append("soup dumpling image result requires visible soup dumpling evidence")
+    return issues
+
+
+def _has_soup_dumpling_evidence(context: str) -> bool:
+    normalized = normalize_user_facing_text(context)
+    return _has_any(
+        normalized.lower(),
+        [
+            "\u5c0f\u7c60\u5305",
+            "\u9eb5\u76ae",
+            "\u8089\u9921",
+            "\u6e6f\u6c41",
+            "\u84b8\u7c60",
+            "\u647a\u76ba",
+            "dumpling",
+            "xiaolongbao",
+        ],
     )
 
 
@@ -378,6 +521,8 @@ def _string_list(value: Any) -> list[str]:
 
 def _fallback_result(text: str, source_type: str, confidence: float | None = None) -> MealAnalysisResult:
     normalized = text.lower()
+    if source_type == "image" and not _has_known_image_hint(text):
+        return _uncertain_image_result(confidence or 0.35)
     meal_name = FALLBACK_MEAL_NAME
     meal_type = FALLBACK_MEAL_TYPE
     calories = 420
@@ -392,6 +537,8 @@ def _fallback_result(text: str, source_type: str, confidence: float | None = Non
         return _butadon_result(source_type, confidence=confidence or 0.75)
     if OYAKODON in normalized or "oyakodon" in normalized:
         return _oyakodon_result(source_type, confidence=confidence or 0.72)
+    if SOUP_DUMPLING in normalized:
+        return _hint_result(SOUP_DUMPLING, source_type, confidence=confidence or 0.68)
 
     if SHRIMP_FRIED_RICE in normalized:
         meal_name = SHRIMP_FRIED_RICE
@@ -434,25 +581,48 @@ def _fallback_result(text: str, source_type: str, confidence: float | None = Non
     if _has_any(normalized, ["\u82b1\u751f\u904e\u654f", "\u907f\u514d\u82b1\u751f", "\u4e0d\u8981\u82b1\u751f"]):
         allergens = _add_unique(allergens, ALLERGEN_PEANUT)
 
-    return MealAnalysisResult(
-        id=f"system-{uuid4()}",
-        mealName=normalize_meal_name(meal_name),
-        mealType=normalize_user_facing_text(meal_type),
-        estimatedCalories=calories,
-        estimatedProtein=protein,
-        tags=normalize_user_facing_list(tags),
-        mainIngredients=normalize_user_facing_list(main_ingredients),
-        allergens=normalize_user_facing_list(allergens),
-        recommendationReason=normalize_user_facing_text(reason),
-        confidence=confidence_value,
-        sourceType=_source_type(source_type),
-        createdAt=datetime.now(timezone.utc).isoformat(),
-        isAiGenerated=True,
+    return normalize_and_enrich_result(
+        {
+            "id": f"system-{uuid4()}",
+            "mealName": normalize_meal_name(meal_name),
+            "mealType": normalize_user_facing_text(meal_type),
+            "estimatedCalories": calories,
+            "estimatedProtein": protein,
+            "tags": normalize_user_facing_list(tags),
+            "mainIngredients": normalize_user_facing_list(main_ingredients),
+            "allergens": normalize_user_facing_list(allergens),
+            "recommendationReason": normalize_user_facing_text(reason),
+            "confidence": confidence_value,
+            "sourceType": _source_type(source_type),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+        },
+        original_text=text,
     )
 
 
 def _has_any(text: str, keywords: list[str]) -> bool:
     return any(keyword.lower() in text for keyword in keywords)
+
+
+def _has_known_image_hint(text: str) -> bool:
+    normalized = normalize_meal_name(text)
+    hints = [
+        BUTADON,
+        TON_I,
+        PORK_DONBURI,
+        OYAKODON,
+        SOUP_DUMPLING,
+        SHRIMP_FRIED_RICE,
+        FRIED_RICE,
+        "\u96de\u6392\u9eb5",
+        "\u725b\u6392\u9eb5",
+        "\u8c6c\u6392\u4e3c",
+        "chicken steak",
+        "steak",
+        "noodles",
+    ]
+    return _has_any(normalized.lower(), hints)
 
 
 def _add_unique(values: list[str], value: str) -> list[str]:
@@ -464,6 +634,64 @@ def _is_butadon_text(text: str) -> bool:
     return BUTADON in normalized or PORK_DONBURI in normalized
 
 
+def _hint_result(meal_name: str, source_type: str, confidence: float, provider_name: str = "system") -> MealAnalysisResult:
+    return normalize_and_enrich_result(
+        {
+            "id": f"{provider_name}-{uuid4()}",
+            "mealName": meal_name,
+            "mealType": DEFAULT_MEAL_TYPE,
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": max(0, min(confidence, 1)),
+            "sourceType": _source_type(source_type),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+        },
+        original_text=meal_name,
+    )
+
+
+def _uncertain_image_result(confidence: float = 0.35) -> MealAnalysisResult:
+    return MealAnalysisResult(
+        id=f"system-{uuid4()}",
+        mealName="\u7591\u4f3c\u9910\u9ede",
+        mealType="\u5f85\u78ba\u8a8d",
+        estimatedCalories=500,
+        estimatedProtein=20,
+        tags=["\u5f85\u78ba\u8a8d"],
+        mainIngredients=["\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d"],
+        allergens=[],
+        recommendationReason=UNCERTAIN_IMAGE_REASON,
+        confidence=min(max(confidence, 0), 0.4),
+        sourceType="image",
+        createdAt=datetime.now(timezone.utc).isoformat(),
+        isAiGenerated=True,
+    )
+
+
+def _log_image_validation(
+    provider_name: str,
+    raw_meal_name: str,
+    result: MealAnalysisResult,
+    validation_errors: list[str],
+    retry_happened: bool,
+    fallback_happened: bool,
+) -> None:
+    print(
+        "Image analysis validation: "
+        f"provider={provider_name}; "
+        f"rawMealName={raw_meal_name}; "
+        f"normalizedMealName={result.mealName}; "
+        f"validationErrors={validation_errors}; "
+        f"retryHappened={retry_happened}; "
+        f"fallbackHappened={fallback_happened}"
+    )
+
+
 def _butadon_result(
     source_type: str,
     confidence: float,
@@ -471,38 +699,44 @@ def _butadon_result(
     suspected: bool = False,
 ) -> MealAnalysisResult:
     meal_name = SUSPECTED_BUTADON if suspected else BUTADON
-    return MealAnalysisResult(
-        id=f"{provider_name}-{uuid4()}",
-        mealName=meal_name,
-        mealType=MEAL_TYPE_JAPANESE_DONBURI,
-        estimatedCalories=650,
-        estimatedProtein=28,
-        tags=[TAG_JAPANESE, TAG_DONBURI, TAG_PORK],
-        mainIngredients=[INGREDIENT_WHITE_RICE, INGREDIENT_PORK_SLICES, INGREDIENT_EGG, INGREDIENT_NORI],
-        allergens=[ALLERGEN_EGG],
-        recommendationReason=SUSPECTED_BUTADON_REASON if suspected else BUTADON_REASON,
-        confidence=max(0, min(confidence, 1)),
-        sourceType=_source_type(source_type),
-        createdAt=datetime.now(timezone.utc).isoformat(),
-        isAiGenerated=True,
+    return normalize_and_enrich_result(
+        {
+            "id": f"{provider_name}-{uuid4()}",
+            "mealName": meal_name,
+            "mealType": MEAL_TYPE_JAPANESE_DONBURI,
+            "estimatedCalories": 650,
+            "estimatedProtein": 28,
+            "tags": [TAG_JAPANESE, TAG_DONBURI, TAG_PORK],
+            "mainIngredients": [INGREDIENT_WHITE_RICE, INGREDIENT_PORK_SLICES, INGREDIENT_EGG, INGREDIENT_NORI],
+            "allergens": [ALLERGEN_EGG],
+            "recommendationReason": SUSPECTED_BUTADON_REASON if suspected else BUTADON_REASON,
+            "confidence": max(0, min(confidence, 1)),
+            "sourceType": _source_type(source_type),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+        },
+        original_text=meal_name,
     )
 
 
 def _oyakodon_result(source_type: str, confidence: float, provider_name: str = "system") -> MealAnalysisResult:
-    return MealAnalysisResult(
-        id=f"{provider_name}-{uuid4()}",
-        mealName=OYAKODON,
-        mealType=MEAL_TYPE_JAPANESE_DONBURI,
-        estimatedCalories=620,
-        estimatedProtein=30,
-        tags=[TAG_JAPANESE, TAG_DONBURI, TAG_CHICKEN],
-        mainIngredients=[INGREDIENT_WHITE_RICE, INGREDIENT_CHICKEN, INGREDIENT_EGG, INGREDIENT_ONION],
-        allergens=[ALLERGEN_EGG],
-        recommendationReason=OYAKODON_REASON,
-        confidence=max(0, min(confidence, 0.75)),
-        sourceType=_source_type(source_type),
-        createdAt=datetime.now(timezone.utc).isoformat(),
-        isAiGenerated=True,
+    return normalize_and_enrich_result(
+        {
+            "id": f"{provider_name}-{uuid4()}",
+            "mealName": OYAKODON,
+            "mealType": MEAL_TYPE_JAPANESE_DONBURI,
+            "estimatedCalories": 620,
+            "estimatedProtein": 30,
+            "tags": [TAG_JAPANESE, TAG_DONBURI, TAG_CHICKEN],
+            "mainIngredients": [INGREDIENT_WHITE_RICE, INGREDIENT_CHICKEN, INGREDIENT_EGG, INGREDIENT_ONION],
+            "allergens": [ALLERGEN_EGG],
+            "recommendationReason": OYAKODON_REASON,
+            "confidence": max(0, min(confidence, 0.75)),
+            "sourceType": _source_type(source_type),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+        },
+        original_text=OYAKODON,
     )
 
 

@@ -1,5 +1,20 @@
 [
   {
+    "id": "gemini-5468bf1d-e4f2-40f3-83f4-47bbb4aa5430",
+    "mealName": "湯包",
+    "mealType": "綜合餐",
+    "estimatedCalories": 500.0,
+    "estimatedProtein": 20.0,
+    "tags": ["綜合餐"],
+    "mainIngredients": ["主要食材待確認"],
+    "allergens": [],
+    "recommendationReason": "系統已根據候選餐點與可見食材特徵重新校正辨識結果。",
+    "confidence": 0.95,
+    "sourceType": "image",
+    "createdAt": "2026-06-06T13:44:08.994645+00:00",
+    "isAiGenerated": true
+  },
+  {
     "id": "gemini-28ffe5f3-f2a4-4c30-aa23-d1aaa9b99ca0",
     "mealName": "豚丼",
     "mealType": "日式丼飯",
