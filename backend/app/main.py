@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.models import MealAnalysisResult, RecommendRequest, TextAnalyzeRequest, UrlAnalyzeRequest
 from app.services import openai_meal_analyzer
+from app.services.nutrition_enricher import normalize_and_enrich_result
 from app.storage.meals_store import add_meal, load_meals, recommend_meals
 
 
@@ -61,17 +62,18 @@ def health() -> dict[str, object]:
 
 @app.post("/api/analyze/text", response_model=MealAnalysisResult)
 def analyze_text(request: TextAnalyzeRequest) -> MealAnalysisResult:
-    return openai_meal_analyzer.analyze_text(request.content)
+    return normalize_and_enrich_result(openai_meal_analyzer.analyze_text(request.content), original_text=request.content)
 
 
 @app.post("/api/analyze/image", response_model=MealAnalysisResult)
 async def analyze_image(file: UploadFile = File(...)) -> MealAnalysisResult:
-    return await openai_meal_analyzer.analyze_image(file)
+    return normalize_and_enrich_result(await openai_meal_analyzer.analyze_image(file), original_text=file.filename)
 
 
 @app.post("/api/analyze/url", response_model=MealAnalysisResult)
 async def analyze_url(request: UrlAnalyzeRequest) -> MealAnalysisResult:
-    return await openai_meal_analyzer.analyze_url(str(request.url))
+    url = str(request.url)
+    return normalize_and_enrich_result(await openai_meal_analyzer.analyze_url(url), original_text=url)
 
 
 @app.get("/api/meals", response_model=list[MealAnalysisResult])

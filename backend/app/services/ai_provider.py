@@ -6,6 +6,17 @@ from typing import Literal
 ProviderName = Literal["openai", "gemini", "mock"]
 
 ROMANIZED_MEAL_NAMES = {
+    "chicken steak and egg noodles": "\u96de\u6392\u86cb\u9eb5",
+    "steak and egg noodles": "\u725b\u6392\u86cb\u9eb5",
+    "chicken steak with noodles": "\u96de\u6392\u9eb5",
+    "steak with noodles": "\u725b\u6392\u9eb5",
+    "steak and eggs": "\u725b\u6392\u86cb",
+    "chicken steak": "\u96de\u6392",
+    "chicken noodles": "\u96de\u8089\u9eb5",
+    "steak": "\u725b\u6392",
+    "eggs": "\u96de\u86cb",
+    "noodles": "\u9eb5\u98df",
+    "shrimp fried rice": "\u8766\u4ec1\u7092\u98ef",
     "katsudon": "\u8c6c\u6392\u4e3c",
     "oyakodon": "\u89aa\u5b50\u4e3c",
     "butadon": "\u8c5a\u4e3c",
@@ -22,6 +33,12 @@ MEAL_NAME_ALIASES = {
 }
 
 USER_FACING_TERMS = {
+    "steak": "\u725b\u6392",
+    "beef": "\u725b\u8089",
+    "noodles": "\u9eb5\u689d",
+    "greens": "\u9752\u83dc",
+    "soup": "\u9ad8\u6e6f",
+    "broth": "\u9ad8\u6e6f",
     "pork slices": "\u8c6c\u8089\u7247",
     "chicken chunks": "\u96de\u8089\u584a",
     "chicken": "\u96de\u8089",

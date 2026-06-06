@@ -48,6 +48,14 @@ function formatList(values: string[]) {
   return values.length > 0 ? values.join("、") : "未設定"
 }
 
+function formatCalories(value: number) {
+  return value > 0 ? `${value} kcal` : "約 500 kcal"
+}
+
+function formatProtein(value: number) {
+  return value > 0 ? `${value}g` : "未估算"
+}
+
 function filterLocalMeals(
   mealDataset: Meal[],
   goal: HealthGoal,
@@ -81,12 +89,12 @@ function MealCard({ meal }: { meal: Meal }) {
           <p className="meal-type">{meal.type}</p>
           <h3>{meal.name}</h3>
         </div>
-        <span>{meal.calories} kcal</span>
+        <span>{formatCalories(meal.calories)}</span>
       </div>
       <div className="meal-facts">
         <div>
           <span>蛋白質</span>
-          <strong>{meal.protein}g</strong>
+          <strong>{formatProtein(meal.protein)}</strong>
         </div>
         <div>
           <span>適合目標</span>
