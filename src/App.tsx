@@ -180,18 +180,26 @@ export function App() {
   )
 
   const handleAnalyzeMeal = async () => {
-    setIsAnalyzing(true)
+    const trimmedDescription = description.trim()
+    const trimmedLink = mealLink.trim()
     setAnalysisError("")
     setAnalysisMessage("")
+    if (!trimmedDescription && !imageFile && !trimmedLink) {
+      setAnalysisResult(null)
+      setAnalysisError("請至少輸入文字描述、上傳餐點圖片，或貼上餐點連結。")
+      return
+    }
+
+    setIsAnalyzing(true)
 
     try {
       let result: Meal
       if (imageFile) {
-        result = await analyzeImage(imageFile)
-      } else if (mealLink.trim()) {
-        result = await analyzeUrl(mealLink.trim())
+        result = await analyzeImage(imageFile, trimmedDescription)
+      } else if (trimmedLink) {
+        result = await analyzeUrl(trimmedLink)
       } else {
-        result = await analyzeText(description.trim())
+        result = await analyzeText(trimmedDescription)
       }
       setAnalysisResult(result)
       setAnalysisMessage("AI 分析完成，可加入餐點資料集。")

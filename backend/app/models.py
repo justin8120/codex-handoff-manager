@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
 
 SourceType = Literal["text", "image", "url"]
@@ -32,7 +32,7 @@ class TextAnalyzeRequest(BaseModel):
 
 
 class UrlAnalyzeRequest(BaseModel):
-    url: HttpUrl
+    url: str | None = None
 
 
 class RecommendRequest(BaseModel):

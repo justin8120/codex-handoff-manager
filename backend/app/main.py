@@ -3,7 +3,7 @@ import json
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -62,17 +62,31 @@ def health() -> dict[str, object]:
 
 @app.post("/api/analyze/text", response_model=MealAnalysisResult)
 def analyze_text(request: TextAnalyzeRequest) -> MealAnalysisResult:
+    if not request.content.strip():
+        raise HTTPException(status_code=400, detail="\u6587\u5b57\u63cf\u8ff0\u4e0d\u53ef\u70ba\u7a7a\u3002")
     return normalize_and_enrich_result(openai_meal_analyzer.analyze_text(request.content), original_text=request.content)
 
 
 @app.post("/api/analyze/image", response_model=MealAnalysisResult)
-async def analyze_image(file: UploadFile = File(...)) -> MealAnalysisResult:
-    return normalize_and_enrich_result(await openai_meal_analyzer.analyze_image(file), original_text=file.filename)
+async def analyze_image(
+    file: UploadFile = File(...),
+    description: str = Form(""),
+) -> MealAnalysisResult:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="\u8acb\u4e0a\u50b3\u9910\u9ede\u5716\u7247\u3002")
+    hint = description.strip()
+    original_text = f"{hint} {file.filename}".strip()
+    return normalize_and_enrich_result(
+        await openai_meal_analyzer.analyze_image(file, hint=hint),
+        original_text=original_text,
+    )
 
 
 @app.post("/api/analyze/url", response_model=MealAnalysisResult)
 async def analyze_url(request: UrlAnalyzeRequest) -> MealAnalysisResult:
-    url = str(request.url)
+    url = str(request.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="\u9910\u9ede\u9023\u7d50\u4e0d\u53ef\u70ba\u7a7a\u3002")
     return normalize_and_enrich_result(await openai_meal_analyzer.analyze_url(url), original_text=url)
 
 

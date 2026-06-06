@@ -109,6 +109,14 @@ DEFAULT_MEAL_NAME = "\u672a\u547d\u540d\u9910\u9ede"
 DEFAULT_MEAL_TYPE = "\u7d9c\u5408\u9910"
 DEFAULT_REASON = "AI \u5df2\u5b8c\u6210\u9910\u9ede\u5206\u6790\u3002"
 SOUP_DUMPLING = "\u6e6f\u5305"
+XIAOLONGBAO = "\u5c0f\u7c60\u5305"
+WATERMELON = "\u897f\u74dc"
+XIAOLONGBAO_HINT_REASON = (
+    "\u7cfb\u7d71\u6839\u64da\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0\u8207\u5716\u7247\u5167\u5bb9"
+    "\u5224\u65b7\u6b64\u9910\u9ede\u70ba\u5c0f\u7c60\u5305\uff0c\u4e3b\u8981\u7531\u9eb5\u76ae\u3001\u8c6c\u8089\u9921"
+    "\u8207\u6e6f\u6c41\u7d44\u6210\u3002\u6b64\u985e\u9910\u9ede\u71b1\u91cf\u591a\u4f86\u81ea\u9eb5\u76ae\u8207"
+    "\u8089\u9921\uff0c\u5efa\u8b70\u6ce8\u610f\u4efd\u91cf\u8207\u9209\u542b\u91cf\u3002"
+)
 UNCERTAIN_IMAGE_REASON = (
     "\u7cfb\u7d71\u7121\u6cd5\u5f9e\u5716\u7247\u4e2d\u7a69\u5b9a\u8fa8\u8b58\u5177\u9ad4\u9910\u9ede\uff0c"
     "\u5efa\u8b70\u88dc\u5145\u6587\u5b57\u63cf\u8ff0\uff0c\u4f8b\u5982\u9910\u9ede\u540d\u7a31\u6216\u4e3b\u8981\u98df\u6750\uff0c"
@@ -134,14 +142,15 @@ def analyze_text(text: str) -> MealAnalysisResult:
     return _safe_analyze("text", text=text)
 
 
-async def analyze_image(file: UploadFile) -> MealAnalysisResult:
+async def analyze_image(file: UploadFile, hint: str = "") -> MealAnalysisResult:
     content = await file.read()
     media_type = file.content_type or "image/jpeg"
     encoded = base64.b64encode(content).decode("ascii")
     data_url = f"data:{media_type};base64,{encoded}"
+    context = f"{hint.strip()} {file.filename or 'uploaded meal image'}".strip()
     return _safe_analyze(
         "image",
-        text=file.filename or "uploaded meal image",
+        text=context,
         image_url=data_url,
         image_bytes=content,
         media_type=media_type,
@@ -574,7 +583,7 @@ def _verification_context(raw_name: str, verification: dict[str, Any], visual_de
 
 def _image_validation_errors(result: MealAnalysisResult, context: str) -> list[str]:
     issues = validate_analysis_result(result)
-    if result.mealName == SOUP_DUMPLING and not _has_soup_dumpling_evidence(context):
+    if result.mealName in {SOUP_DUMPLING, XIAOLONGBAO} and not _has_soup_dumpling_evidence(context):
         issues.append("soup dumpling image result requires visible soup dumpling evidence")
     return issues
 
@@ -584,7 +593,6 @@ def _has_soup_dumpling_evidence(context: str) -> bool:
     return _has_any(
         normalized.lower(),
         [
-            "\u5c0f\u7c60\u5305",
             "\u9eb5\u76ae",
             "\u8089\u9921",
             "\u6e6f\u6c41",
@@ -606,6 +614,10 @@ def _string_list(value: Any) -> list[str]:
 
 def _fallback_result(text: str, source_type: str, confidence: float | None = None) -> MealAnalysisResult:
     normalized = text.lower()
+    if source_type == "image":
+        hinted_result = _hinted_image_result(text, confidence=confidence or 0.68)
+        if hinted_result:
+            return hinted_result
     if source_type == "image" and not _has_known_image_hint(text):
         return _uncertain_image_result(confidence or 0.35)
     meal_name = FALLBACK_MEAL_NAME
@@ -622,8 +634,10 @@ def _fallback_result(text: str, source_type: str, confidence: float | None = Non
         return _butadon_result(source_type, confidence=confidence or 0.75)
     if OYAKODON in normalized or "oyakodon" in normalized:
         return _oyakodon_result(source_type, confidence=confidence or 0.72)
-    if SOUP_DUMPLING in normalized:
-        return _hint_result(SOUP_DUMPLING, source_type, confidence=confidence or 0.68)
+    if _is_soup_dumpling_hint(normalized):
+        return _xiaolongbao_hint_result(source_type, confidence=confidence or 0.68)
+    if _is_watermelon_hint(normalized):
+        return _hint_result(WATERMELON, source_type, confidence=confidence or 0.68)
 
     if SHRIMP_FRIED_RICE in normalized:
         meal_name = SHRIMP_FRIED_RICE
@@ -698,6 +712,11 @@ def _has_known_image_hint(text: str) -> bool:
         PORK_DONBURI,
         OYAKODON,
         SOUP_DUMPLING,
+        XIAOLONGBAO,
+        WATERMELON,
+        "steamed dumplings",
+        "soup dumplings",
+        "watermelon",
         SHRIMP_FRIED_RICE,
         FRIED_RICE,
         "\u96de\u6392\u9eb5",
@@ -708,6 +727,27 @@ def _has_known_image_hint(text: str) -> bool:
         "noodles",
     ]
     return _has_any(normalized.lower(), hints)
+
+
+def _hinted_image_result(text: str, confidence: float) -> MealAnalysisResult | None:
+    normalized = normalize_meal_name(text).lower()
+    if _is_butadon_text(normalized):
+        return _butadon_result("image", confidence=confidence)
+    if OYAKODON in normalized or "oyakodon" in normalized:
+        return _oyakodon_result("image", confidence=confidence)
+    if _is_soup_dumpling_hint(normalized):
+        return _xiaolongbao_hint_result("image", confidence=confidence)
+    if _is_watermelon_hint(normalized):
+        return _hint_result(WATERMELON, "image", confidence=confidence)
+    return None
+
+
+def _is_soup_dumpling_hint(text: str) -> bool:
+    return _has_any(text, [SOUP_DUMPLING, XIAOLONGBAO, "steamed dumplings", "soup dumplings"])
+
+
+def _is_watermelon_hint(text: str) -> bool:
+    return _has_any(text, [WATERMELON, "watermelon"])
 
 
 def _add_unique(values: list[str], value: str) -> list[str]:
@@ -737,6 +777,27 @@ def _hint_result(meal_name: str, source_type: str, confidence: float, provider_n
             "isAiGenerated": True,
         },
         original_text=meal_name,
+    )
+
+
+def _xiaolongbao_hint_result(source_type: str, confidence: float, provider_name: str = "system") -> MealAnalysisResult:
+    return normalize_and_enrich_result(
+        {
+            "id": f"{provider_name}-{uuid4()}",
+            "mealName": XIAOLONGBAO,
+            "mealType": "\u4e2d\u5f0f\u9ede\u5fc3",
+            "estimatedCalories": 380,
+            "estimatedProtein": 16,
+            "tags": ["\u4e2d\u5f0f", "\u9ede\u5fc3", "\u9eb5\u98df"],
+            "mainIngredients": ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"],
+            "allergens": ["\u9ea9\u8cea"],
+            "recommendationReason": XIAOLONGBAO_HINT_REASON,
+            "confidence": max(0, min(confidence, 1)),
+            "sourceType": _source_type(source_type),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+        },
+        original_text=XIAOLONGBAO,
     )
 
 

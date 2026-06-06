@@ -426,6 +426,59 @@ def test_analyze_image_with_text_hint_ton_i_normalizes_to_butadon(monkeypatch):
     assert "\u89aa\u5b50\u4e3c" in payload["recommendationReason"]
 
 
+def test_analyze_image_with_xiaolongbao_hint_uses_text_before_uncertain_fallback(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"description": "\u5c0f\u7c60\u5305"},
+        files={"file": ("images.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u5c0f\u7c60\u5305"
+    assert payload["estimatedCalories"] == 380
+    assert payload["estimatedProtein"] == 16
+    assert payload["mealType"] == "\u4e2d\u5f0f\u9ede\u5fc3"
+    assert payload["tags"] == ["\u4e2d\u5f0f", "\u9ede\u5fc3", "\u9eb5\u98df"]
+    assert payload["mainIngredients"] == ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"]
+    assert payload["allergens"] == ["\u9ea9\u8cea"]
+    assert "\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0" in payload["recommendationReason"]
+
+
+def test_analyze_image_with_english_soup_dumplings_hint_uses_xiaolongbao(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"description": "soup dumplings"},
+        files={"file": ("images.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mealName"] == "\u5c0f\u7c60\u5305"
+
+
+def test_analyze_image_with_watermelon_hint_uses_watermelon(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"description": "watermelon"},
+        files={"file": ("images.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u897f\u74dc"
+    assert payload["estimatedCalories"] > 0
+    assert payload["mainIngredients"] == ["\u897f\u74dc"]
+
+
 def test_rerank_prefers_butadon_when_pork_slices_are_visible(monkeypatch):
     monkeypatch.setenv("WEB_VERIFY_MAX_CANDIDATES", "5")
     candidates = [
@@ -763,3 +816,17 @@ def test_analyze_text_requires_key_when_fallback_disabled(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["detail"] == "AI analysis service is not configured. Please set OPENAI_API_KEY."
+
+
+def test_analyze_text_rejects_empty_description():
+    response = client.post("/api/analyze/text", json={"description": "   "})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "\u6587\u5b57\u63cf\u8ff0\u4e0d\u53ef\u70ba\u7a7a\u3002"
+
+
+def test_analyze_url_rejects_empty_url():
+    response = client.post("/api/analyze/url", json={"url": "   "})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "\u9910\u9ede\u9023\u7d50\u4e0d\u53ef\u70ba\u7a7a\u3002"

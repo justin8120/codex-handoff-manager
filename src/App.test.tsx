@@ -90,6 +90,10 @@ function mockOnlineApi() {
     if (url.endsWith("/api/meals") && init?.method === "POST") return jsonResponse(analysisMeal)
     if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
     if (url.endsWith("/api/analyze/text")) return jsonResponse(analysisMeal)
+    if (url.endsWith("/api/analyze/image"))
+      return jsonResponse({ ...analysisMeal, sourceType: "image" })
+    if (url.endsWith("/api/analyze/url"))
+      return jsonResponse({ ...analysisMeal, sourceType: "url" })
     if (url.endsWith("/api/recommend")) {
       const body = JSON.parse(String(init?.body))
       if (body.keyword === "不存在餐點") return jsonResponse([])
@@ -138,6 +142,73 @@ describe("App", () => {
     await waitFor(() =>
       expect(screen.getByText("茶葉蛋 已加入餐點資料集，可用於後續推薦。")).toBeInTheDocument(),
     )
+  })
+
+  test("does not call analysis API when all analysis inputs are empty", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await screen.findByText(/Provider：gemini/)
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(
+      screen.getByText("請至少輸入文字描述、上傳餐點圖片，或貼上餐點連結。"),
+    ).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/analyze/"))).toBe(
+      false,
+    )
+  })
+
+  test("analyzes with only text description", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "茶葉蛋")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByLabelText("AI 分析結果")).toBeInTheDocument()
+  })
+
+  test("analyzes with only image upload", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const file = new File(["fake"], "meal.jpg", { type: "image/jpeg" })
+
+    await user.upload(screen.getByLabelText("圖片上傳"), file)
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByLabelText("AI 分析結果")).toBeInTheDocument()
+  })
+
+  test("sends text description as image analysis hint when text and image are provided", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+    const file = new File(["fake"], "meal.jpg", { type: "image/jpeg" })
+
+    await user.type(screen.getByLabelText("文字描述"), "小籠包")
+    await user.upload(screen.getByLabelText("圖片上傳"), file)
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    await screen.findByLabelText("AI 分析結果")
+    const imageCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/analyze/image"),
+    )
+    expect(imageCall?.[1]?.body).toBeInstanceOf(FormData)
+    expect((imageCall?.[1]?.body as FormData).get("description")).toBe("小籠包")
+  })
+
+  test("analyzes with only URL input", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByLabelText("連結輸入"), "https://example.com/menu")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByLabelText("AI 分析結果")).toBeInTheDocument()
   })
 
   test("shows backend offline message when API is unavailable", async () => {

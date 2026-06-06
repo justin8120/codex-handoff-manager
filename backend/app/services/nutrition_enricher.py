@@ -45,14 +45,20 @@ STEAK_EGG_NOODLES_REASON = (
     "\u5efa\u8b70\u642d\u914d\u852c\u83dc\u4e26\u7559\u610f\u91ac\u6599\u651d\u53d6\u3002"
 )
 SOUP_DUMPLING_REASON = (
-    "\u7cfb\u7d71\u8fa8\u8b58\u6b64\u9910\u9ede\u70ba\u6e6f\u5305\uff0c"
+    "\u7cfb\u7d71\u8fa8\u8b58\u6b64\u9910\u9ede\u70ba\u5c0f\u7c60\u5305\uff0c"
     "\u4e3b\u8981\u7531\u9eb5\u76ae\u3001\u8089\u9921\u8207\u6e6f\u6c41\u7d44\u6210\u3002"
     "\u6b64\u985e\u9910\u9ede\u71b1\u91cf\u591a\u4f86\u81ea\u9eb5\u76ae\u8207\u8089\u9921\uff0c"
     "\u5efa\u8b70\u6ce8\u610f\u4efd\u91cf\u8207\u9209\u542b\u91cf\u3002"
 )
+WATERMELON_REASON = (
+    "\u7cfb\u7d71\u6839\u64da\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0"
+    "\u5224\u65b7\u6b64\u9910\u9ede\u70ba\u897f\u74dc\u3002\u897f\u74dc\u542b\u6c34\u91cf\u9ad8\u3001"
+    "\u71b1\u91cf\u8f03\u4f4e\uff0c\u9069\u5408\u4f5c\u70ba\u9ede\u5fc3\u6216\u98ef\u5f8c\u6c34\u679c\uff0c"
+    "\u4f46\u4ecd\u5efa\u8b70\u7559\u610f\u4efd\u91cf\u8207\u7cd6\u5206\u651d\u53d6\u3002"
+)
 
 KNOWN_MEALS: dict[str, dict[str, Any]] = {
-    "\u6e6f\u5305": {
+    "\u5c0f\u7c60\u5305": {
         "estimatedCalories": 380,
         "estimatedProtein": 16,
         "mealType": "\u4e2d\u5f0f\u9ede\u5fc3",
@@ -60,6 +66,15 @@ KNOWN_MEALS: dict[str, dict[str, Any]] = {
         "mainIngredients": ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"],
         "allergens": ["\u9ea9\u8cea"],
         "recommendationReason": SOUP_DUMPLING_REASON,
+    },
+    "\u897f\u74dc": {
+        "estimatedCalories": 45,
+        "estimatedProtein": 1,
+        "mealType": "\u6c34\u679c",
+        "tags": ["\u4f4e\u5361", "\u6c34\u679c"],
+        "mainIngredients": ["\u897f\u74dc"],
+        "allergens": [],
+        "recommendationReason": WATERMELON_REASON,
     },
     "\u725b\u6392\u86cb\u9eb5": {
         "estimatedCalories": 850,
@@ -307,7 +322,7 @@ def validate_analysis_result(result: MealAnalysisResult | dict[str, Any]) -> lis
         or _is_generic_reason(reason)
     ):
         issues.append("recommendationReason must be localized and user friendly")
-    if meal_name == "\u6e6f\u5305" and ingredients_incomplete:
+    if meal_name in {"\u6e6f\u5305", "\u5c0f\u7c60\u5305"} and ingredients_incomplete:
         issues.append("soup dumpling requires concrete ingredients")
     if confidence >= 0.9 and ingredients_incomplete:
         issues.append("high confidence requires concrete ingredients")

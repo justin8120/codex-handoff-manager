@@ -6,6 +6,9 @@ from typing import Literal
 ProviderName = Literal["openai", "gemini", "mock"]
 
 ROMANIZED_MEAL_NAMES = {
+    "steamed dumplings": "\u5c0f\u7c60\u5305",
+    "soup dumplings": "\u5c0f\u7c60\u5305",
+    "watermelon": "\u897f\u74dc",
     "chicken steak and egg noodles": "\u96de\u6392\u86cb\u9eb5",
     "steak and egg noodles": "\u725b\u6392\u86cb\u9eb5",
     "chicken steak with noodles": "\u96de\u6392\u9eb5",
@@ -27,6 +30,7 @@ ROMANIZED_MEAL_NAMES = {
 }
 
 MEAL_NAME_ALIASES = {
+    "\u6e6f\u5305": "\u5c0f\u7c60\u5305",
     "\u8c5a\u4e95": "\u8c5a\u4e3c",
     "\u8c6c\u8089\u4e3c": "\u8c5a\u4e3c",
     "\u8c5a\u8089\u4e3c": "\u8c5a\u4e3c",
