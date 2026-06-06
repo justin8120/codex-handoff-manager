@@ -7,6 +7,8 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException, UploadFile
 from openai import APIError, AuthenticationError, BadRequestError, OpenAI, RateLimitError
+from google import genai
+from google.genai import types
 
 from app.models import MealAnalysisResult
 from app.services.ai_provider import (
@@ -137,7 +139,13 @@ async def analyze_image(file: UploadFile) -> MealAnalysisResult:
     media_type = file.content_type or "image/jpeg"
     encoded = base64.b64encode(content).decode("ascii")
     data_url = f"data:{media_type};base64,{encoded}"
-    return _safe_analyze("image", text=file.filename or "uploaded meal image", image_url=data_url)
+    return _safe_analyze(
+        "image",
+        text=file.filename or "uploaded meal image",
+        image_url=data_url,
+        image_bytes=content,
+        media_type=media_type,
+    )
 
 
 async def analyze_url(url: str) -> MealAnalysisResult:
@@ -150,7 +158,13 @@ async def analyze_url(url: str) -> MealAnalysisResult:
     return _safe_analyze("url", text=f"URL: {url}\nExtracted content:\n{summary}")
 
 
-def _safe_analyze(source_type: str, text: str, image_url: str | None = None) -> MealAnalysisResult:
+def _safe_analyze(
+    source_type: str,
+    text: str,
+    image_url: str | None = None,
+    image_bytes: bytes | None = None,
+    media_type: str | None = None,
+) -> MealAnalysisResult:
     provider = get_ai_provider()
     if provider.name == "mock":
         return _fallback_result(text, source_type)
@@ -161,7 +175,7 @@ def _safe_analyze(source_type: str, text: str, image_url: str | None = None) -> 
 
     try:
         if source_type == "image" and image_url:
-            return _analyze_image_with_verification(provider.name, text, image_url)
+            return _analyze_image_with_verification(provider.name, text, image_url, image_bytes, media_type)
         return _call_chat_completion(provider_name=provider.name, text=text, source_type=source_type, image_url=image_url)
     except (
         RateLimitError,
@@ -222,11 +236,31 @@ def _call_chat_completion(
     return _normalize_payload(payload, source_type, provider_name)
 
 
-def _analyze_image_with_verification(provider_name: str, text: str, image_url: str) -> MealAnalysisResult:
+def _analyze_image_with_verification(
+    provider_name: str,
+    text: str,
+    image_url: str,
+    image_bytes: bytes | None = None,
+    media_type: str | None = None,
+) -> MealAnalysisResult:
     provider = get_ai_provider()
     retry_happened = False
     fallback_happened = False
-    payload = _call_image_candidate_completion(provider_name, text, image_url)
+    try:
+        payload = _call_image_candidate_completion_compatible(provider_name, text, image_url, image_bytes, media_type)
+    except Exception as error:
+        print(f"Image candidate analysis failed ({provider_name}): {error}")
+        try:
+            direct_result = _call_chat_completion(provider_name, text, "image", image_url)
+            issues = _image_validation_errors(direct_result, text)
+            if not issues:
+                _log_image_validation(provider_name, "", direct_result, issues, retry_happened, fallback_happened)
+                return direct_result
+        except Exception as direct_error:
+            print(f"Direct image analysis failed ({provider_name}): {direct_error}")
+        result = _fallback_result(text, "image", confidence=0.35)
+        _log_image_validation(provider_name, "", result, validate_analysis_result(result), retry_happened, True)
+        return result
     visual_description = str(payload.get("visualDescription") or payload.get("visual_description") or text)
     candidates = _candidate_list(payload.get("candidates"))
     if not candidates:
@@ -265,8 +299,16 @@ def _analyze_image_with_verification(provider_name: str, text: str, image_url: s
     return result
 
 
-def _call_image_candidate_completion(provider_name: str, text: str, image_url: str) -> dict[str, Any]:
+def _call_image_candidate_completion(
+    provider_name: str,
+    text: str,
+    image_url: str,
+    image_bytes: bytes | None = None,
+    media_type: str | None = None,
+) -> dict[str, Any]:
     provider = get_ai_provider()
+    if provider.name == "gemini" and image_bytes:
+        return _call_gemini_image_candidate_completion(text, image_bytes, media_type or "image/jpeg")
     client = (
         OpenAI(api_key=provider.api_key, base_url=provider.base_url)
         if provider.base_url
@@ -306,6 +348,49 @@ def _call_image_candidate_completion(provider_name: str, text: str, image_url: s
     content = response.choices[0].message.content
     if not content:
         raise json.JSONDecodeError("empty model response", "", 0)
+    return json.loads(content)
+
+
+def _call_image_candidate_completion_compatible(
+    provider_name: str,
+    text: str,
+    image_url: str,
+    image_bytes: bytes | None,
+    media_type: str | None,
+) -> dict[str, Any]:
+    try:
+        return _call_image_candidate_completion(provider_name, text, image_url, image_bytes, media_type)
+    except TypeError as error:
+        if "positional" not in str(error) and "argument" not in str(error):
+            raise
+        return _call_image_candidate_completion(provider_name, text, image_url)
+
+
+def _call_gemini_image_candidate_completion(text: str, image_bytes: bytes, media_type: str) -> dict[str, Any]:
+    provider = get_ai_provider()
+    if not provider.api_key:
+        raise HTTPException(status_code=503, detail=CONFIGURATION_ERROR)
+    client = genai.Client(api_key=provider.api_key)
+    prompt = (
+        "Return only valid JSON, no markdown. Analyze this meal image in two parts: "
+        "visualDescription and candidates. candidates must contain 3 to 5 objects with name, confidence, evidence. "
+        "Use Traditional Chinese meal names and concrete visual evidence. "
+        "Do not return placeholders. Do not use generic names such as 餐點, 食物, 料理, 主餐, or 湯包 unless "
+        "there is visible dumpling evidence such as 小籠包, 麵皮, 肉餡, 湯汁, 蒸籠, or folds. "
+        "If noodles, rice, egg, meat, seafood, vegetables, soup, breading, or wrappers are visible, mention them in evidence. "
+        f"Context or filename: {text}"
+    )
+    response = client.models.generate_content(
+        model=provider.model,
+        contents=[
+            prompt,
+            types.Part.from_bytes(data=image_bytes, mime_type=media_type),
+        ],
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    content = response.text
+    if not content:
+        raise json.JSONDecodeError("empty Gemini image response", "", 0)
     return json.loads(content)
 
 
@@ -663,7 +748,7 @@ def _uncertain_image_result(confidence: float = 0.35) -> MealAnalysisResult:
         estimatedCalories=500,
         estimatedProtein=20,
         tags=["\u5f85\u78ba\u8a8d"],
-        mainIngredients=["\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d"],
+        mainIngredients=["\u9910\u9ede\u5f71\u50cf\u7279\u5fb5\u4e0d\u8db3"],
         allergens=[],
         recommendationReason=UNCERTAIN_IMAGE_REASON,
         confidence=min(max(confidence, 0), 0.4),
