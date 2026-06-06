@@ -1,73 +1,95 @@
 # Deployment Options
 
-## Current Setup
+## Current Deployment Plan
 
-GitHub Pages remains the deployment target for the React frontend only.
+本專案採用前後端分離公開部署：
 
-- GitHub repository: https://github.com/justin8120/codex-handoff-manager
-- GitHub Pages URL: https://justin8120.github.io/codex-handoff-manager/
-- Frontend env var: `VITE_API_BASE_URL`
-- Backend env vars: `AI_PROVIDER`, `AI_FALLBACK_ENABLED`, `OPENAI_API_KEY`, `GEMINI_API_KEY`
+- Frontend: GitHub Pages
+- Backend: Render Web Service
+- API URL: 前端透過 `VITE_API_BASE_URL` 指向 Render 後端
+- API keys: 只放在 Render environment variables
 
-GitHub Pages cannot run FastAPI and cannot safely store AI provider keys. OpenAI or Gemini API calls must be made from the backend.
+## GitHub Pages Frontend
 
-## Frontend: GitHub Pages
-
-GitHub Pages is still suitable for:
+GitHub Pages 適合部署：
 
 - React + Vite static frontend
-- UI for AI meal analysis
-- Offline展示模式
-- Calling a separately deployed backend through `VITE_API_BASE_URL`
+- AI 餐點分析與推薦 UI
+- 離線展示模式
+- 呼叫 Render FastAPI backend
 
-It is not suitable for:
+GitHub Pages 不適合：
 
-- Running Python / FastAPI
-- Storing `OPENAI_API_KEY` or `GEMINI_API_KEY`
-- Calling OpenAI or Gemini directly from browser code
+- 執行 Python / FastAPI
+- 儲存 `OPENAI_API_KEY` 或 `GEMINI_API_KEY`
+- 直接從瀏覽器呼叫 OpenAI 或 Gemini
 
-## Backend Deployment Options
+`deploy-pages.yml` 在 push 到 `main` 時會：
 
-FastAPI should be deployed separately to a service that can store environment variables securely.
+1. checkout repository
+2. setup Node.js
+3. run `npm ci`
+4. run `npm run build`
+5. upload `dist`
+6. deploy to GitHub Pages
 
-Recommended options:
-
-- Render
-- Railway
-- Fly.io
-- A VPS or school server with HTTPS
-
-Backend deployment must set:
+Build environment:
 
 ```bash
-AI_PROVIDER=gemini
+VITE_BASE_PATH=/${{ github.event.repository.name }}/
+VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
+```
+
+## Render Backend
+
+Render 適合部署 FastAPI，並安全保存環境變數。
+
+`render.yaml` 設定：
+
+- Root Directory: `backend`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+Render 必要環境變數：
+
+```bash
+AI_PROVIDER=auto
 AI_FALLBACK_ENABLED=true
-OPENAI_API_KEY=...
-GEMINI_API_KEY=...
+OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-4.1-mini
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 GEMINI_MODEL=gemini-2.5-flash-lite
-FRONTEND_ORIGIN=https://justin8120.github.io
+FRONTEND_ORIGIN=http://localhost:5173,https://your-username.github.io
+WEB_VERIFY_ENABLED=false
+WEB_VERIFY_PROVIDER=gemini_grounding
 ```
 
-After deployment, set the frontend build variable:
+## CORS
+
+後端 `FRONTEND_ORIGIN` 支援逗號分隔多個 origin：
 
 ```bash
-VITE_API_BASE_URL=https://your-backend.example.com
+FRONTEND_ORIGIN=http://localhost:5173,https://justin8120.github.io
 ```
 
-## OpenAI API Key Safety
+## Security
 
-Never place `OPENAI_API_KEY` in:
+不要提交：
 
-- frontend source code
-- `.env` files committed to git
-- GitHub Pages static assets
-- browser-visible JavaScript bundles
+- `.env`
+- `.env.*`
+- `backend/.env`
+- `backend/.env.*`
+- OpenAI / Gemini API keys
 
-Only the FastAPI backend should read and use provider keys.
+可提交的範本：
+
+- `.env.example`
+- `.env.production.example`
+- `backend/.env.example`
 
 ## Risks / Follow-Ups
 
 - automated visual diff is not configured
 - project documents should stay synchronized after deployment changes
-- backend production deployment is still required for real AI analysis on the public GitHub Pages site

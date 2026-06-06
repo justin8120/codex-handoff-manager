@@ -45,7 +45,7 @@ function toggleValue<T>(values: T[], value: T) {
 }
 
 function formatList(values: string[]) {
-  return values.length > 0 ? values.join("、") : "未指定"
+  return values.length > 0 ? values.join("、") : "未設定"
 }
 
 function filterLocalMeals(
@@ -117,7 +117,7 @@ function MealCard({ meal }: { meal: Meal }) {
           {meal.sourceType ? `來源類型：${meal.sourceType}` : null}
           {meal.sourceType && meal.confidence ? "，" : null}
           {meal.confidence ? `信心分數：${Math.round(meal.confidence * 100)}%` : null}
-          {meal.isAiGenerated ? "，AI 產生" : null}
+          {meal.isAiGenerated ? "，系統分析" : null}
         </p>
       ) : null}
     </article>
@@ -186,9 +186,9 @@ export function App() {
         result = await analyzeText(description.trim())
       }
       setAnalysisResult(result)
-      setAnalysisMessage("AI 分析完成，可檢視後加入餐點資料集。")
+      setAnalysisMessage("AI 分析完成，可加入餐點資料集。")
     } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : "AI 分析失敗。")
+      setAnalysisError(error instanceof Error ? error.message : "AI 分析失敗，請稍後再試。")
     } finally {
       setIsAnalyzing(false)
     }
@@ -201,10 +201,10 @@ export function App() {
       const savedMeal = isOfflineMode ? analysisResult : await addMeal(analysisResult)
       setMealDataset((current) => [savedMeal, ...current])
       setRecommendedMeals((current) => [savedMeal, ...current])
-      setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，並可用於推薦。`)
+      setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，可用於後續推薦。`)
       setAnalysisError("")
     } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : "加入餐點資料集失敗。")
+      setAnalysisError(error instanceof Error ? error.message : "加入餐點資料集失敗，請稍後再試。")
     }
   }
 
@@ -251,7 +251,7 @@ export function App() {
           </div>
           <div>
             <strong>智慧飲食建議系統</strong>
-            <span>OpenAI 後端分析</span>
+            <span>AI 餐點分析與推薦</span>
           </div>
         </div>
         <nav>
@@ -287,8 +287,8 @@ export function App() {
           <div className="eyebrow">Smart Diet Recommendation System</div>
           <h1>智慧飲食建議系統</h1>
           <p>
-            本系統包含 React 前端與 FastAPI 後端。正式 AI 分析會透過後端呼叫 OpenAI API，
-            使用者可用文字、圖片或連結分析餐點，並將結果加入餐點資料集。
+            使用 React 前端與 FastAPI 後端串接 AI provider，依照使用者飲食偏好、健康目標、
+            過敏原與餐點描述，分析餐點並推薦適合的飲食選項。
           </p>
           <div className="hero-actions">
             <a className="primary-action" href="#ai-analysis">
@@ -298,35 +298,35 @@ export function App() {
           </div>
         </section>
 
-        <section className="metrics" aria-label="餐點資料概況">
+        <section className="metrics" aria-label="餐點資料概覽">
           <div>
             <span>{mealDataset.length}</span>
             <p>筆餐點資料</p>
           </div>
           <div>
             <span>{dietTags.length}</span>
-            <p>種飲食標籤</p>
+            <p>飲食標籤</p>
           </div>
           <div>
             <span>{allergens.length}</span>
-            <p>種禁忌食材</p>
+            <p>可排除禁忌</p>
           </div>
         </section>
 
         {backendError ? (
-          <p className="status-message">{backendError} 目前為離線展示模式。</p>
+          <p className="status-message">{backendError} 目前使用離線展示模式。</p>
         ) : null}
 
         <section className="section" id="ai-analysis">
           <div className="section-heading">
             <div>
-              <div className="eyebrow">OpenAI Analysis</div>
+              <div className="eyebrow">AI Analysis</div>
               <h2>AI 餐點分析與資料集擴充</h2>
             </div>
             <p>
               AI 後端狀態：{aiStatusLabel}，API 狀態：{apiStatusLabel}
               {backendHealth
-                ? `，Provider：${backendHealth.aiProvider}，Model：${backendHealth.model}，Fallback：${
+                ? `，Provider：${backendHealth.aiProvider}，Model：${backendHealth.model}，系統分析：${
                     backendHealth.fallbackEnabled ? "啟用" : "停用"
                   }`
                 : ""}
@@ -393,7 +393,7 @@ export function App() {
               <div className="eyebrow">Recommendation</div>
               <h2>餐點推薦</h2>
             </div>
-            <p>選擇健康目標、飲食標籤與要排除的食材，系統會篩選符合條件的餐點並附上推薦原因。</p>
+            <p>選擇健康目標、飲食標籤、禁忌食材或搜尋關鍵字，系統會推薦符合條件的餐點。</p>
           </div>
 
           <div className="recommendation-panel">
@@ -414,7 +414,7 @@ export function App() {
               </div>
 
               <label className="control-group">
-                關鍵字搜尋
+                搜尋關鍵字
                 <span className="search-field">
                   <Search size={17} aria-hidden="true" />
                   <input
@@ -480,7 +480,7 @@ export function App() {
           </div>
 
           {!hasSearched ? (
-            <p className="empty-state">請選擇條件後開始推薦，下方先顯示所有可推薦餐點。</p>
+            <p className="empty-state">請選擇條件後開始推薦，目前先顯示餐點資料。</p>
           ) : null}
 
           {hasSearched && recommendedMeals.length === 0 ? (
@@ -500,10 +500,10 @@ export function App() {
               <div className="eyebrow">Dataset</div>
               <h2>餐點資料集</h2>
             </div>
-            <p>完整列出目前系統用來推薦的餐點資料，包含營養資訊、飲食標籤、主要食材與禁忌食材。</p>
+            <p>完整列出系統目前可用於推薦的餐點資料，包含 AI 分析後新增的餐點。</p>
           </div>
 
-          <div className="meal-data-grid" aria-label="完整餐點資料集">
+          <div className="meal-data-grid" aria-label="餐點資料集清單">
             {mealDataset.map((meal) => (
               <MealCard meal={meal} key={meal.id} />
             ))}
@@ -516,7 +516,7 @@ export function App() {
               <div className="eyebrow">History</div>
               <h2>查詢紀錄</h2>
             </div>
-            <p>每次查詢後會在下方保留最近條件與結果數量，方便比較不同飲食需求的推薦差異。</p>
+            <p>記錄最近查詢條件與結果數量，方便調整搜尋策略。</p>
           </div>
 
           {history.length === 0 ? (
@@ -529,7 +529,7 @@ export function App() {
                   <p>目標：{record.goal}</p>
                   <p>標籤：{formatList(record.tags)}</p>
                   <p>排除：{formatList(record.excludedAllergens)}</p>
-                  <p>關鍵字：{record.keyword || "未指定"}</p>
+                  <p>關鍵字：{record.keyword || "未設定"}</p>
                   <span>結果數量：{record.resultCount}</span>
                 </article>
               ))}

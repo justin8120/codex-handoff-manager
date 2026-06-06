@@ -1,8 +1,10 @@
-# FastAPI 後端
+# FastAPI Backend
 
-這個後端提供智慧飲食建議系統的 OpenAI 餐點分析 API、餐點資料集儲存與推薦 API。OpenAI API Key 只放在後端環境變數，不可放在前端或 commit 到 git。
+此後端提供「智慧飲食建議系統」的 AI 餐點分析、餐點資料集與推薦 API。OpenAI / Gemini API key 只可放在後端環境變數，不可寫入前端或 commit 到 git。
 
-## 啟動方式
+## Local Development
+
+Windows:
 
 ```powershell
 python -m venv .venv
@@ -13,7 +15,7 @@ copy .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-macOS / Linux 可使用：
+macOS / Linux:
 
 ```bash
 python -m venv .venv
@@ -24,31 +26,51 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
+## Render Deployment
+
+Render start command:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Root Directory:
+
+```text
+backend
+```
+
+Build Command:
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Environment Variables
 
-- `AI_PROVIDER`: `openai`、`gemini`、`mock` 或 `auto`。
-- `AI_FALLBACK_ENABLED`: `true` 時 AI 供應商錯誤會回傳 rule-based fallback，不讓 endpoint 直接 500。
-- `OPENAI_API_KEY`: OpenAI API key。
-- `OPENAI_MODEL`: 預設 `gpt-4.1-mini`。
-- `GEMINI_API_KEY`: Gemini API key。
-- `GEMINI_BASE_URL`: Gemini OpenAI compatibility endpoint。
-- `GEMINI_MODEL`: 預設 `gemini-2.5-flash-lite`。
-- `FRONTEND_ORIGIN`: 前端開發網址，預設 `http://localhost:5173`。
+- `AI_PROVIDER`: `openai`, `gemini`, `mock`, or `auto`
+- `AI_FALLBACK_ENABLED`: AI provider 失敗時是否改用系統分析規則
+- `OPENAI_API_KEY`: OpenAI API key
+- `OPENAI_MODEL`: 預設 `gpt-4.1-mini`
+- `GEMINI_API_KEY`: Gemini API key
+- `GEMINI_BASE_URL`: Gemini OpenAI-compatible endpoint
+- `GEMINI_MODEL`: 預設 `gemini-2.5-flash-lite`
+- `FRONTEND_ORIGIN`: CORS 允許來源，支援逗號分隔多個 origin
+- `WEB_VERIFY_ENABLED`: 圖片分析後是否啟用網路比對校正
+- `WEB_VERIFY_PROVIDER`: 目前支援 `gemini_grounding`
 
 ## API Endpoints
 
-- `GET /api/health`: 回傳後端狀態與 OpenAI API 是否已設定。
-- `POST /api/analyze/text`: 使用文字描述呼叫 OpenAI Responses API 分析餐點。
-- `POST /api/analyze/image`: 上傳餐點圖片並呼叫 OpenAI vision 分析。
-- `POST /api/analyze/url`: 擷取單一 URL 的 title、description 與主要文字，再交給 OpenAI 分析。
-- `GET /api/meals`: 回傳 JSON 檔案中的餐點資料集。
-- `POST /api/meals`: 將 AI 分析結果加入資料集並寫回 `backend/data/meals.json`。
-- `POST /api/recommend`: 依健康目標、標籤、禁忌食材與關鍵字推薦餐點。
+- `GET /api/health`
+- `POST /api/analyze/text`
+- `POST /api/analyze/image`
+- `POST /api/analyze/url`
+- `GET /api/meals`
+- `POST /api/meals`
+- `POST /api/recommend`
 
 ## Tests
 
 ```bash
-pytest
+python -m pytest
 ```
-
-測試不會真的呼叫 OpenAI 或 Gemini API；會檢查 mock provider、推薦 API、資料集 API，以及 fallback 關閉時未設定 key 的清楚錯誤訊息。

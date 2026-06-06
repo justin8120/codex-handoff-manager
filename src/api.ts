@@ -1,4 +1,4 @@
-import type { Allergen, DietTag, HealthGoal, Meal } from "./mealData"
+import type { Allergen, DietTag, HealthGoal, Meal, MealSourceType } from "./mealData"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
 
@@ -41,7 +41,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
-    const message = payload?.detail ?? "AI 後端請求失敗。"
+    const message = payload?.detail ?? "AI 後端請求失敗，請確認 FastAPI server 是否正常啟動。"
     throw new Error(message)
   }
 
@@ -147,16 +147,14 @@ function inferGoals(meal: BackendMeal): HealthGoal[] {
   return [...goals]
 }
 
-function sourceTypeLabel(
-  sourceType?: Meal["sourceType"] | BackendMeal["sourceType"],
-): Meal["sourceType"] {
+function sourceTypeLabel(sourceType?: MealSourceType | BackendMeal["sourceType"]): MealSourceType {
   if (sourceType === "image") return "圖片"
   if (sourceType === "url") return "連結"
   if (sourceType === "資料集") return "資料集"
   return "文字"
 }
 
-function sourceTypeValue(sourceType?: Meal["sourceType"]): BackendMeal["sourceType"] {
+function sourceTypeValue(sourceType?: MealSourceType): BackendMeal["sourceType"] {
   if (sourceType === "圖片") return "image"
   if (sourceType === "連結") return "url"
   return "text"

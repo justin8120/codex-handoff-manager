@@ -4,3 +4,8 @@ node_modules
 coverage
 *.tsbuildinfo
 artifacts
+backend/.pytest_cache/
+backend/.venv/
+.pytest_cache/
+**/.pytest_cache/
+**/__pycache__

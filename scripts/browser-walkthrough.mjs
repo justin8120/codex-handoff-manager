@@ -19,14 +19,8 @@ function delay(ms) {
 
 function resolveChromePath() {
   const candidates = [
-    {
-      label: "CHROME_PATH",
-      path: process.env.CHROME_PATH,
-    },
-    {
-      label: "PUPPETEER_EXECUTABLE_PATH",
-      path: process.env.PUPPETEER_EXECUTABLE_PATH,
-    },
+    { label: "CHROME_PATH", path: process.env.CHROME_PATH },
+    { label: "PUPPETEER_EXECUTABLE_PATH", path: process.env.PUPPETEER_EXECUTABLE_PATH },
     {
       label: "Windows Program Files",
       path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -39,47 +33,27 @@ function resolveChromePath() {
       label: "macOS Applications",
       path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     },
-    {
-      label: "Linux google-chrome",
-      path: "/usr/bin/google-chrome",
-    },
-    {
-      label: "Linux google-chrome-stable",
-      path: "/usr/bin/google-chrome-stable",
-    },
-    {
-      label: "Linux chromium",
-      path: "/usr/bin/chromium",
-    },
-    {
-      label: "Linux chromium-browser",
-      path: "/usr/bin/chromium-browser",
-    },
+    { label: "Linux google-chrome", path: "/usr/bin/google-chrome" },
+    { label: "Linux google-chrome-stable", path: "/usr/bin/google-chrome-stable" },
+    { label: "Linux chromium", path: "/usr/bin/chromium" },
+    { label: "Linux chromium-browser", path: "/usr/bin/chromium-browser" },
   ]
 
   const match = candidates.find((candidate) => candidate.path && existsSync(candidate.path))
   if (match?.path) return match.path
 
-  const attemptedPaths = candidates.map((candidate) => {
-    const value = candidate.path || "<not set>"
-    return `- ${candidate.label}: ${value}`
-  })
-
   throw new Error(
     [
       "Chrome executable was not found for the browser walkthrough.",
-      "Set CHROME_PATH or PUPPETEER_EXECUTABLE_PATH to a Chrome/Chromium executable, or install Chrome in a common location.",
+      "Set CHROME_PATH or PUPPETEER_EXECUTABLE_PATH to a Chrome/Chromium executable.",
       "Attempted paths:",
-      ...attemptedPaths,
+      ...candidates.map((candidate) => `- ${candidate.label}: ${candidate.path || "<not set>"}`),
     ].join("\n"),
   )
 }
 
 function waitForExit(processHandle, timeoutMs = 3_000) {
-  if (processHandle.exitCode !== null || processHandle.signalCode !== null) {
-    return Promise.resolve()
-  }
-
+  if (processHandle.exitCode !== null || processHandle.signalCode !== null) return Promise.resolve()
   return new Promise((resolveExit) => {
     const timer = setTimeout(resolveExit, timeoutMs)
     processHandle.once("exit", () => {
@@ -106,7 +80,6 @@ function killProcessTree(processHandle) {
     })
     return
   }
-
   processHandle.kill()
 }
 
@@ -161,13 +134,12 @@ function createStaticServer() {
   })
 }
 
-function spawnHidden(command, args, options = {}) {
+function spawnHidden(command, args) {
   return spawn(command, args, {
     cwd: root,
     detached: false,
     stdio: "ignore",
     windowsHide: true,
-    ...options,
   })
 }
 
@@ -190,11 +162,8 @@ class CdpClient {
       if (message.id && this.pending.has(message.id)) {
         const { resolveMessage, rejectMessage } = this.pending.get(message.id)
         this.pending.delete(message.id)
-        if (message.error) {
-          rejectMessage(new Error(message.error.message))
-        } else {
-          resolveMessage(message.result ?? {})
-        }
+        if (message.error) rejectMessage(new Error(message.error.message))
+        else resolveMessage(message.result ?? {})
         return
       }
 
@@ -233,18 +202,11 @@ class CdpClient {
 async function evaluate(client, sessionId, expression) {
   const result = await client.send(
     "Runtime.evaluate",
-    {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-    },
+    { expression, awaitPromise: true, returnByValue: true },
     sessionId,
   )
-
-  if (result.exceptionDetails) {
+  if (result.exceptionDetails)
     throw new Error(result.exceptionDetails.text ?? "Browser evaluation failed")
-  }
-
   return result.result.value
 }
 
@@ -256,11 +218,7 @@ async function captureScreenshot(client, sessionId, fileName) {
   mkdirSync(screenshotDir, { recursive: true })
   const { data } = await client.send(
     "Page.captureScreenshot",
-    {
-      format: "png",
-      captureBeyondViewport: true,
-      fromSurface: true,
-    },
+    { format: "png", captureBeyondViewport: true },
     sessionId,
   )
   writeFileSync(join(screenshotDir, fileName), Buffer.from(data, "base64"))
@@ -269,14 +227,13 @@ async function captureScreenshot(client, sessionId, fileName) {
 async function main() {
   if (shouldCaptureScreenshots) removeDirBestEffort(screenshotDir)
   mkdirSync(userDataDir, { recursive: true })
-
   assert(
     existsSync(join(distRoot, "index.html")),
     "dist/index.html does not exist; run npm run build first",
   )
+
   const server = await createStaticServer()
-  const chromePath = resolveChromePath()
-  const chrome = spawnHidden(chromePath, [
+  const chrome = spawnHidden(resolveChromePath(), [
     "--headless=new",
     "--disable-gpu",
     "--no-first-run",
@@ -301,12 +258,7 @@ async function main() {
     await client.send("Runtime.enable", {}, sessionId)
     await client.send(
       "Emulation.setDeviceMetricsOverride",
-      {
-        width: 1280,
-        height: 900,
-        deviceScaleFactor: 1,
-        mobile: false,
-      },
+      { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false },
       sessionId,
     )
 
@@ -323,7 +275,7 @@ async function main() {
         nav: [...document.querySelectorAll("nav a")].map((a) => a.textContent.trim()),
         metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim()),
         aiHeading: document.querySelector("#ai-analysis h2")?.textContent,
-        backendStatus: document.body.textContent,
+        body: document.body.textContent,
         mealDataset: [...document.querySelectorAll("#meal-dataset .meal-card h3")].map((heading) => heading.textContent.trim())
       }))()`,
     )
@@ -337,13 +289,12 @@ async function main() {
     assert(desktop.metrics.join(",") === "9,5,4", "Metrics did not match expected meal data")
     assert(desktop.aiHeading === "AI 餐點分析與資料集擴充", "AI analysis section was not rendered")
     assert(
-      desktop.backendStatus.includes("AI 後端尚未啟動，請先啟動 FastAPI server。") &&
-        desktop.backendStatus.includes("離線展示模式"),
-      "Offline backend status was not shown for the static walkthrough",
+      desktop.body.includes("AI 後端尚未啟動") && desktop.body.includes("離線展示模式"),
+      "Offline status was not shown",
     )
     assert(
       desktop.mealDataset.length === 9 && desktop.mealDataset.includes("茶葉蛋"),
-      "Meal dataset section did not render the complete dataset",
+      "Meal dataset did not render",
     )
     if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "desktop.png")
 
@@ -361,7 +312,7 @@ async function main() {
     )
     assert(
       recommendationFlow.length === 1 && recommendationFlow.includes("茶葉蛋"),
-      "Offline recommendation flow did not find tea egg",
+      "Search did not find tea egg",
     )
 
     const seafoodFilter = await evaluate(
@@ -382,7 +333,7 @@ async function main() {
     )
     assert(
       !seafoodFilter.meals.includes("海鮮粥") && !seafoodFilter.meals.includes("鮭魚沙拉"),
-      "Seafood exclusion did not remove seafood meals",
+      "Seafood exclusion failed",
     )
     assert(seafoodFilter.history.includes("結果數量"), "Query history did not record searches")
 
@@ -392,16 +343,13 @@ async function main() {
       `new Promise((resolve) => {
         const input = document.querySelector('input[type="search"]');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        setter.call(input, "不存在的餐點");
+        setter.call(input, "不存在餐點");
         input.dispatchEvent(new Event("input", { bubbles: true }));
         [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "搜尋 / 推薦").click();
         setTimeout(() => resolve(document.querySelector("#results .empty-state")?.textContent ?? ""), 100);
       })`,
     )
-    assert(
-      emptyResult.includes("未找到符合條件的餐點，請調整搜尋條件"),
-      "Empty recommendation state was not shown",
-    )
+    assert(emptyResult.includes("未找到符合條件的餐點"), "Empty recommendation state was not shown")
 
     const anchorResult = await evaluate(
       client,
@@ -421,17 +369,12 @@ async function main() {
     assert(anchorResult.heading === "餐點資料集", "Meal dataset section heading was not reached")
     assert(
       anchorResult.top < anchorResult.height && anchorResult.bottom > 0,
-      "Meal dataset section was not visible after anchor navigation",
+      "Meal dataset section was not visible",
     )
 
     await client.send(
       "Emulation.setDeviceMetricsOverride",
-      {
-        width: 390,
-        height: 844,
-        deviceScaleFactor: 2,
-        mobile: true,
-      },
+      { width: 390, height: 844, deviceScaleFactor: 2, mobile: true },
       sessionId,
     )
     const mobileLoaded = client.once("Page.loadEventFired")
@@ -451,7 +394,6 @@ async function main() {
           .map((node) => node.className || node.tagName)
           .slice(0, 5);
         return {
-          bodyScrollWidth: document.body.scrollWidth,
           shellWidth: Math.round(shellRect.width),
           sidebarWidth: Math.round(sidebarRect.width),
           sidebarTop: Math.round(sidebarRect.top),
@@ -464,20 +406,17 @@ async function main() {
     )
     assert(
       mobile.shellWidth <= mobile.viewportWidth,
-      `Mobile app shell overflows viewport: ${JSON.stringify(mobile)}`,
+      `Mobile app shell overflows: ${JSON.stringify(mobile)}`,
     )
     assert(
       mobile.sidebarWidth <= mobile.viewportWidth && mobile.sidebarTop === 0,
-      `Mobile sidebar did not collapse above content: ${JSON.stringify(mobile)}`,
+      "Mobile sidebar did not collapse",
     )
-    assert(
-      !mobile.navColumns.includes(" "),
-      `Mobile navigation did not collapse to one column: ${JSON.stringify(mobile)}`,
-    )
+    assert(!mobile.navColumns.includes(" "), "Mobile navigation did not collapse to one column")
     assert(mobile.actionWidth >= 350, "Mobile action buttons are not full width")
     assert(
       mobile.overflowing.length === 0,
-      `Mobile layout overflow detected: ${mobile.overflowing.join(", ")}`,
+      `Mobile overflow detected: ${mobile.overflowing.join(", ")}`,
     )
     if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "mobile.png")
 

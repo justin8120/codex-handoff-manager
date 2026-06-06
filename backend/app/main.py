@@ -37,10 +37,14 @@ app = FastAPI(
     default_response_class=UnicodeEscapedJSONResponse,
 )
 
-frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+frontend_origins = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGIN", "http://localhost:5173").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin, "http://localhost:4173", "http://localhost:4174"],
+    allow_origins=[*frontend_origins, "http://localhost:4173", "http://localhost:4174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

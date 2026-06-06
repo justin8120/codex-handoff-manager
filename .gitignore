@@ -12,6 +12,7 @@ artifacts
 backend/.env
 backend/.env.*
 !.env.example
+!.env.production.example
 !backend/.env.example
 
 npm-debug.log*

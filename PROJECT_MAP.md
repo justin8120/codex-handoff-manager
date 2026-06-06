@@ -2,30 +2,37 @@
 
 ## Project
 
-智慧飲食建議系統現在包含前端與後端。前端負責使用者介面、離線展示模式與 GitHub Pages 靜態部署；FastAPI 後端負責 OpenAI / Gemini / mock provider 餐點分析、URL 擷取、圖片分析、餐點資料 JSON 儲存與推薦 API。
+智慧飲食建議系統包含 React + TypeScript + Vite 前端與 FastAPI 後端。前端可部署到 GitHub Pages；後端可部署到 Render，負責 AI provider 呼叫、圖片辨識校正、URL 擷取、餐點資料集儲存與推薦 API。
 
 ## Frontend Files
 
-- `src/App.tsx`: 主要 UI、後端狀態、AI 分析表單、資料集載入、推薦流程、離線展示模式與查詢紀錄。
-- `src/api.ts`: 前端 API client，呼叫 `/api/health`、`/api/meals`、`/api/analyze/*`、`/api/recommend`。
-- `src/mealData.ts`: 前端離線展示資料與型別。
-- `src/styles.css`: 響應式版面、AI 分析區、推薦表單、餐點卡片、資料集與查詢紀錄樣式。
-- `src/App.test.tsx`: mock API 的前端 component tests。
-- `scripts/browser-walkthrough.mjs`: production build 的瀏覽器走查，驗證離線展示模式與推薦流程。
+- `src/App.tsx`: 主要 UI，包含系統介紹、AI 餐點分析、推薦條件、推薦結果、餐點資料集與查詢紀錄。
+- `src/api.ts`: 前端 API client，透過 `VITE_API_BASE_URL` 呼叫後端 API。
+- `src/mealData.ts`: 前端離線展示資料。
+- `src/styles.css`: 響應式版面與視覺樣式。
+- `src/App.test.tsx`: Vitest + React Testing Library component tests。
+- `scripts/browser-walkthrough.mjs`: production build 的瀏覽器互動走查。
+- `scripts/check-content.mjs`: 內容檢查，避免 mojibake 亂碼重新進入專案。
 
 ## Backend Structure
 
 - `backend/app/main.py`: FastAPI app、CORS、health、analyze、meals、recommend endpoints。
-- `backend/app/models.py`: Pydantic models：`MealAnalysisResult`、`TextAnalyzeRequest`、`UrlAnalyzeRequest`、`RecommendRequest`。
-- `backend/app/services/ai_provider.py`: 解析 `AI_PROVIDER=openai|gemini|mock|auto`、模型、key 與 fallback 設定。
-- `backend/app/services/openai_meal_analyzer.py`: 使用 OpenAI Python SDK 的 chat completions JSON mode 串接 OpenAI 或 Gemini OpenAI compatibility API，並提供 rule-based fallback。
-- `backend/app/services/url_fetcher.py`: 使用 httpx + BeautifulSoup 擷取單一 URL 的 title、meta description 與主要文字。
-- `backend/app/storage/meals_store.py`: JSON 檔案資料讀寫與推薦篩選。
-- `backend/data/meals.json`: 9 筆預設餐點資料與後續新增 AI 分析結果。
-- `backend/tests/test_api.py`: FastAPI endpoint tests，不實際呼叫 OpenAI API。
-- `backend/requirements.txt`: 後端 Python 依賴。
-- `backend/.env.example`: 後端環境變數範例。
-- `backend/README.md`: 後端啟動、測試與 endpoint 說明。
+- `backend/app/models.py`: Pydantic models。
+- `backend/app/services/ai_provider.py`: AI provider、環境變數與餐點名稱正規化。
+- `backend/app/services/openai_meal_analyzer.py`: 文字、圖片、URL 餐點分析流程與安全系統分析。
+- `backend/app/services/web_food_verifier.py`: 圖片候選餐點校正、豚丼 / 親子丼 / 豬排丼 rerank 規則、Gemini Search grounding best-effort 流程。
+- `backend/app/services/url_fetcher.py`: 使用 httpx + BeautifulSoup 擷取單一 URL 內容。
+- `backend/app/storage/meals_store.py`: JSON 餐點資料集讀寫。
+- `backend/data/meals.json`: 預設餐點資料與新增分析結果。
+- `backend/tests/test_api.py`: FastAPI endpoint 與正規化 / rerank 測試。
+
+## Deployment Files
+
+- `.github/workflows/deploy-pages.yml`: push 到 `main` 時部署前端到 GitHub Pages。
+- `render.yaml`: Render Web Service blueprint，部署 `backend`。
+- `.env.example`: 前端本機 API URL 範本。
+- `.env.production.example`: 前端 production API URL 與 GitHub Pages base path 範本。
+- `backend/.env.example`: 後端本機與 Render 環境變數範本。
 
 ## API Endpoints
 
@@ -37,23 +44,20 @@
 - `POST /api/meals`
 - `POST /api/recommend`
 
-## OpenAI Flow
+## Public Deployment
 
-後端從 `.env` 讀取 `AI_PROVIDER`、`AI_FALLBACK_ENABLED`、OpenAI 與 Gemini 相關 key/model。`openai_meal_analyzer.py` 使用 OpenAI Python SDK 的 chat completions JSON mode，並要求模型只回傳符合 `MealAnalysisResult` schema 的 JSON，不回傳 markdown。若 fallback 關閉且 key 未設定，分析 API 回傳清楚錯誤：
-
-```text
-AI analysis service is not configured. Please set OPENAI_API_KEY.
-```
-
-OpenAI / Gemini API Key 不可放在前端，也不可 commit 到 git。`AI_PROVIDER=auto` 時會優先使用 Gemini key，其次 OpenAI key，若都沒有則使用 mock provider。
+- Frontend: GitHub Pages
+- Backend: Render
+- Frontend API base URL: `VITE_API_BASE_URL`
+- Backend allowed origins: `FRONTEND_ORIGIN`, supports comma-separated origins
+- API keys: stored only in Render environment variables
 
 ## Validation
 
 - Frontend: `npm run validate`
-- Backend: `cd backend && pip install -r requirements.txt && pytest`
+- Backend: `cd backend && python -m pytest`
 
 ## Risks / Follow-Ups
 
 - automated visual diff is not configured
 - project documents should stay synchronized after deployment changes
-- FastAPI backend needs separate production deployment before GitHub Pages frontend can use real AI online
