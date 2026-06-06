@@ -111,6 +111,7 @@ DEFAULT_REASON = "AI \u5df2\u5b8c\u6210\u9910\u9ede\u5206\u6790\u3002"
 SOUP_DUMPLING = "\u6e6f\u5305"
 XIAOLONGBAO = "\u5c0f\u7c60\u5305"
 WATERMELON = "\u897f\u74dc"
+PEANUT = "\u82b1\u751f"
 XIAOLONGBAO_HINT_REASON = (
     "\u7cfb\u7d71\u6839\u64da\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0\u8207\u5716\u7247\u5167\u5bb9"
     "\u5224\u65b7\u6b64\u9910\u9ede\u70ba\u5c0f\u7c60\u5305\uff0c\u4e3b\u8981\u7531\u9eb5\u76ae\u3001\u8c6c\u8089\u9921"
@@ -386,6 +387,7 @@ def _call_gemini_image_candidate_completion(text: str, image_bytes: bytes, media
         "Use Traditional Chinese meal names and concrete visual evidence. "
         "Do not return placeholders. Do not use generic names such as 餐點, 食物, 料理, 主餐, or 湯包 unless "
         "there is visible dumpling evidence such as 小籠包, 麵皮, 肉餡, 湯汁, 蒸籠, or folds. "
+        "If the user text mentions 花生, peanut, 西瓜, or watermelon, treat that text as a strong recognition hint. "
         "If noodles, rice, egg, meat, seafood, vegetables, soup, breading, or wrappers are visible, mention them in evidence. "
         f"Context or filename: {text}"
     )
@@ -714,9 +716,12 @@ def _has_known_image_hint(text: str) -> bool:
         SOUP_DUMPLING,
         XIAOLONGBAO,
         WATERMELON,
+        PEANUT,
         "steamed dumplings",
         "soup dumplings",
         "watermelon",
+        "peanut",
+        "peanuts",
         SHRIMP_FRIED_RICE,
         FRIED_RICE,
         "\u96de\u6392\u9eb5",
@@ -739,6 +744,8 @@ def _hinted_image_result(text: str, confidence: float) -> MealAnalysisResult | N
         return _xiaolongbao_hint_result("image", confidence=confidence)
     if _is_watermelon_hint(normalized):
         return _hint_result(WATERMELON, "image", confidence=confidence)
+    if _is_peanut_hint(normalized):
+        return _hint_result(PEANUT, "image", confidence=0.9)
     return None
 
 
@@ -748,6 +755,10 @@ def _is_soup_dumpling_hint(text: str) -> bool:
 
 def _is_watermelon_hint(text: str) -> bool:
     return _has_any(text, [WATERMELON, "watermelon"])
+
+
+def _is_peanut_hint(text: str) -> bool:
+    return _has_any(text, [PEANUT, "peanut", "peanuts"])
 
 
 def _add_unique(values: list[str], value: str) -> list[str]:
@@ -764,7 +775,7 @@ def _hint_result(meal_name: str, source_type: str, confidence: float, provider_n
         {
             "id": f"{provider_name}-{uuid4()}",
             "mealName": meal_name,
-            "mealType": DEFAULT_MEAL_TYPE,
+            "mealType": "",
             "estimatedCalories": 0,
             "estimatedProtein": 0,
             "tags": [],

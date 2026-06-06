@@ -448,6 +448,20 @@ def test_analyze_image_with_xiaolongbao_hint_uses_text_before_uncertain_fallback
     assert "\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0" in payload["recommendationReason"]
 
 
+def test_analyze_image_accepts_text_hint_field(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"text": "\u5c0f\u7c60\u5305"},
+        files={"file": ("images.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mealName"] == "\u5c0f\u7c60\u5305"
+
+
 def test_analyze_image_with_english_soup_dumplings_hint_uses_xiaolongbao(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "mock")
     monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
@@ -460,6 +474,28 @@ def test_analyze_image_with_english_soup_dumplings_hint_uses_xiaolongbao(monkeyp
 
     assert response.status_code == 200
     assert response.json()["mealName"] == "\u5c0f\u7c60\u5305"
+
+
+def test_analyze_image_with_peanut_hint_uses_peanut(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"text": "\u82b1\u751f"},
+        files={"file": ("\u82b1\u751f\u71df\u990a\u6210\u5206.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u82b1\u751f"
+    assert payload["mealName"] != "\u7591\u4f3c\u9910\u9ede"
+    assert payload["mealType"] == "\u5805\u679c / \u8c46\u985e\u98df\u6750"
+    assert payload["estimatedCalories"] == 567
+    assert payload["estimatedProtein"] == 26
+    assert payload["mainIngredients"] == ["\u82b1\u751f"]
+    assert "\u82b1\u751f" in payload["allergens"]
+    assert payload["confidence"] == 0.9
 
 
 def test_analyze_image_with_watermelon_hint_uses_watermelon(monkeypatch):
@@ -475,8 +511,33 @@ def test_analyze_image_with_watermelon_hint_uses_watermelon(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["mealName"] == "\u897f\u74dc"
-    assert payload["estimatedCalories"] > 0
+    assert payload["estimatedCalories"] == 30
     assert payload["mainIngredients"] == ["\u897f\u74dc"]
+
+
+def test_single_ingredient_result_passes_validation():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-peanut",
+            "mealName": "\u82b1\u751f",
+            "mealType": "\u5805\u679c / \u8c46\u985e\u98df\u6750",
+            "estimatedCalories": 567,
+            "estimatedProtein": 26,
+            "tags": ["\u5805\u679c", "\u9ad8\u86cb\u767d", "\u9ad8\u8102\u80aa"],
+            "mainIngredients": ["\u82b1\u751f"],
+            "allergens": ["\u82b1\u751f"],
+            "recommendationReason": (
+                "\u7cfb\u7d71\u6839\u64da\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0"
+                "\u5224\u65b7\u6b64\u9805\u76ee\u70ba\u82b1\u751f\u3002"
+            ),
+            "confidence": 0.9,
+            "sourceType": "image",
+            "createdAt": "2026-06-06T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert validate_analysis_result(result) == []
 
 
 def test_rerank_prefers_butadon_when_pork_slices_are_visible(monkeypatch):

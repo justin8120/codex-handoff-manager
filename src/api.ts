@@ -105,7 +105,10 @@ export async function analyzeText(description: string): Promise<Meal> {
 export async function analyzeImage(file: File, description = ""): Promise<Meal> {
   const formData = new FormData()
   formData.append("file", file)
-  if (description.trim()) formData.append("description", description.trim())
+  if (description.trim()) {
+    formData.append("text", description.trim())
+    formData.append("description", description.trim())
+  }
   const payload = await request<BackendMeal>("/api/analyze/image", {
     method: "POST",
     body: formData,

@@ -9,6 +9,8 @@ ROMANIZED_MEAL_NAMES = {
     "steamed dumplings": "\u5c0f\u7c60\u5305",
     "soup dumplings": "\u5c0f\u7c60\u5305",
     "watermelon": "\u897f\u74dc",
+    "peanut": "\u82b1\u751f",
+    "peanuts": "\u82b1\u751f",
     "chicken steak and egg noodles": "\u96de\u6392\u86cb\u9eb5",
     "steak and egg noodles": "\u725b\u6392\u86cb\u9eb5",
     "chicken steak with noodles": "\u96de\u6392\u9eb5",

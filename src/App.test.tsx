@@ -198,6 +198,7 @@ describe("App", () => {
       String(input).endsWith("/api/analyze/image"),
     )
     expect(imageCall?.[1]?.body).toBeInstanceOf(FormData)
+    expect((imageCall?.[1]?.body as FormData).get("text")).toBe("小籠包")
     expect((imageCall?.[1]?.body as FormData).get("description")).toBe("小籠包")
   })
 

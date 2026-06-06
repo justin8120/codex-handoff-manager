@@ -56,6 +56,12 @@ WATERMELON_REASON = (
     "\u71b1\u91cf\u8f03\u4f4e\uff0c\u9069\u5408\u4f5c\u70ba\u9ede\u5fc3\u6216\u98ef\u5f8c\u6c34\u679c\uff0c"
     "\u4f46\u4ecd\u5efa\u8b70\u7559\u610f\u4efd\u91cf\u8207\u7cd6\u5206\u651d\u53d6\u3002"
 )
+PEANUT_REASON = (
+    "\u7cfb\u7d71\u6839\u64da\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0"
+    "\u5224\u65b7\u6b64\u9805\u76ee\u70ba\u82b1\u751f\u3002\u82b1\u751f\u542b\u6709\u86cb\u767d\u8cea"
+    "\u8207\u8102\u80aa\uff0c\u71b1\u91cf\u8f03\u9ad8\uff0c\u9069\u5408\u4f5c\u70ba\u5c11\u91cf\u9ede\u5fc3"
+    "\u6216\u71df\u990a\u88dc\u5145\uff0c\u4f46\u5c0d\u82b1\u751f\u904e\u654f\u8005\u61c9\u907f\u514d\u98df\u7528\u3002"
+)
 
 KNOWN_MEALS: dict[str, dict[str, Any]] = {
     "\u5c0f\u7c60\u5305": {
@@ -68,13 +74,22 @@ KNOWN_MEALS: dict[str, dict[str, Any]] = {
         "recommendationReason": SOUP_DUMPLING_REASON,
     },
     "\u897f\u74dc": {
-        "estimatedCalories": 45,
+        "estimatedCalories": 30,
         "estimatedProtein": 1,
         "mealType": "\u6c34\u679c",
-        "tags": ["\u4f4e\u5361", "\u6c34\u679c"],
+        "tags": ["\u6c34\u679c", "\u4f4e\u71b1\u91cf", "\u6c34\u5206\u9ad8"],
         "mainIngredients": ["\u897f\u74dc"],
         "allergens": [],
         "recommendationReason": WATERMELON_REASON,
+    },
+    "\u82b1\u751f": {
+        "estimatedCalories": 567,
+        "estimatedProtein": 26,
+        "mealType": "\u5805\u679c / \u8c46\u985e\u98df\u6750",
+        "tags": ["\u5805\u679c", "\u9ad8\u86cb\u767d", "\u9ad8\u8102\u80aa"],
+        "mainIngredients": ["\u82b1\u751f"],
+        "allergens": ["\u82b1\u751f"],
+        "recommendationReason": PEANUT_REASON,
     },
     "\u725b\u6392\u86cb\u9eb5": {
         "estimatedCalories": 850,

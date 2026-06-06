@@ -70,11 +70,12 @@ def analyze_text(request: TextAnalyzeRequest) -> MealAnalysisResult:
 @app.post("/api/analyze/image", response_model=MealAnalysisResult)
 async def analyze_image(
     file: UploadFile = File(...),
+    text: str = Form(""),
     description: str = Form(""),
 ) -> MealAnalysisResult:
     if not file.filename:
         raise HTTPException(status_code=400, detail="\u8acb\u4e0a\u50b3\u9910\u9ede\u5716\u7247\u3002")
-    hint = description.strip()
+    hint = (text or description).strip()
     original_text = f"{hint} {file.filename}".strip()
     return normalize_and_enrich_result(
         await openai_meal_analyzer.analyze_image(file, hint=hint),
