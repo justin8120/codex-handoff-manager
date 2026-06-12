@@ -71,6 +71,13 @@ PEANUT_REASON = (
     "\u8207\u8102\u80aa\uff0c\u71b1\u91cf\u8f03\u9ad8\uff0c\u9069\u5408\u4f5c\u70ba\u5c11\u91cf\u9ede\u5fc3"
     "\u6216\u71df\u990a\u88dc\u5145\uff0c\u4f46\u5c0d\u82b1\u751f\u904e\u654f\u8005\u61c9\u907f\u514d\u98df\u7528\u3002"
 )
+URL_CONSERVATIVE_REASON = (
+    "\u7cfb\u7d71\u5df2\u63a5\u6536\u9910\u9ede\u9023\u7d50\uff0c"
+    "\u4f46\u7121\u6cd5\u5b8c\u6574\u89e3\u6790\u8a72\u9801\u9762\u7684\u83dc\u55ae\u5167\u5bb9\uff0c"
+    "\u56e0\u6b64\u50c5\u80fd\u6839\u64da\u53ef\u53d6\u5f97\u7684\u9910\u9ede\u540d\u7a31\u6216"
+    "\u9810\u8a2d\u8cc7\u6599\u9032\u884c\u521d\u6b65\u4f30\u7b97\u3002"
+    "\u5efa\u8b70\u88dc\u5145\u9910\u9ede\u540d\u7a31\u6216\u4e3b\u8981\u98df\u6750\u4ee5\u63d0\u9ad8\u6e96\u78ba\u5ea6\u3002"
+)
 
 KNOWN_MEALS: dict[str, dict[str, Any]] = {
     "\u5c0f\u7c60\u5305": {
@@ -293,8 +300,39 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         reason = str(known.get("recommendationReason") or DEFAULT_REASON)
 
     confidence = max(0, min(float(payload.get("confidence") or 0.55), 1))
-    if meal_name == "\u70b8\u96de\u6392":
-        confidence = min(confidence, 0.85)
+    if source_type == "url" and (_has_stale_image_hint_reason(reason) or _has_incomplete_ingredients(main_ingredients)):
+        reason = URL_CONSERVATIVE_REASON
+    confidence = calibrate_confidence(
+        {
+            **payload,
+            "mealName": meal_name,
+            "mealType": meal_type,
+            "estimatedCalories": calories,
+            "estimatedProtein": protein,
+            "tags": tags,
+            "mainIngredients": main_ingredients,
+            "recommendationReason": reason,
+            "confidence": confidence,
+            "sourceType": source_type,
+        },
+        source_type=source_type,
+        validation_errors=validate_analysis_result(
+            {
+                **payload,
+                "mealName": meal_name,
+                "mealType": meal_type,
+                "estimatedCalories": calories,
+                "estimatedProtein": protein,
+                "tags": tags,
+                "mainIngredients": main_ingredients,
+                "recommendationReason": reason,
+                "confidence": confidence,
+                "sourceType": source_type,
+            },
+        ),
+        used_fallback=str(payload.get("id") or "").startswith("system-"),
+        parsed_evidence=original_text,
+    )
 
     enriched = MealAnalysisResult(
         id=str(payload.get("id") or f"system-{uuid4()}"),
@@ -325,8 +363,53 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
             fixed["estimatedProtein"] = 20
         if _is_forbidden_reason(fixed["recommendationReason"]) or not fixed["recommendationReason"]:
             fixed["recommendationReason"] = DEFAULT_REASON
+        fixed["confidence"] = calibrate_confidence(
+            fixed,
+            source_type=str(fixed.get("sourceType") or source_type),
+            validation_errors=validate_analysis_result(fixed),
+            used_fallback=str(fixed.get("id") or "").startswith("system-"),
+            parsed_evidence=original_text,
+        )
         enriched = MealAnalysisResult(**fixed)
     return enriched
+
+
+def calibrate_confidence(
+    result: MealAnalysisResult | dict[str, Any],
+    source_type: str,
+    validation_errors: list[str] | None = None,
+    used_fallback: bool = False,
+    parsed_evidence: str | None = None,
+) -> float:
+    payload = result.model_dump() if isinstance(result, MealAnalysisResult) else dict(result)
+    confidence = max(0, min(float(payload.get("confidence") or 0.55), 1))
+    ingredients = _string_list(payload.get("mainIngredients"))
+    reason = str(payload.get("recommendationReason") or "")
+    meal_name = str(payload.get("mealName") or "")
+    calories = _positive_float(payload.get("estimatedCalories"))
+    protein = _positive_float(payload.get("estimatedProtein"))
+    source = source_type if source_type in {"text", "image", "url"} else str(payload.get("sourceType") or "text")
+    validation_errors = validation_errors or []
+    evidence = str(parsed_evidence or "")
+
+    if _has_incomplete_ingredients(ingredients):
+        confidence = min(confidence, 0.45)
+    if used_fallback:
+        confidence = min(confidence, 0.55)
+    if source == "url":
+        if "URL fetch failed" in evidence or "URL fetch failed" in reason:
+            confidence = min(confidence, 0.4)
+        elif _has_incomplete_ingredients(ingredients):
+            confidence = min(confidence, 0.45)
+        elif len(ingredients) < 2:
+            confidence = min(confidence, 0.6)
+    if source == "image" and used_fallback and validation_errors:
+        confidence = min(confidence, 0.4)
+    if not _is_complete_result(meal_name, calories, protein, ingredients, reason, source):
+        confidence = min(confidence, 0.75)
+    if meal_name == "\u70b8\u96de\u6392":
+        confidence = min(confidence, 0.85)
+    return confidence
 
 
 def validate_analysis_result(result: MealAnalysisResult | dict[str, Any]) -> list[str]:
@@ -546,6 +629,36 @@ def _is_generic_reason(reason: str) -> bool:
     }
 
 
+def _has_stale_image_hint_reason(reason: str) -> bool:
+    return _has_any(reason, ["\u6587\u5b57\u63cf\u8ff0", "\u5716\u7247\u63d0\u793a", "\u8f14\u52a9\u63d0\u793a"])
+
+
+def _has_incomplete_ingredients(ingredients: list[str]) -> bool:
+    return not ingredients or any(_is_invalid_user_value(item) for item in ingredients)
+
+
+def _is_complete_result(
+    meal_name: str,
+    calories: float | None,
+    protein: float | None,
+    ingredients: list[str],
+    reason: str,
+    source_type: str,
+) -> bool:
+    return (
+        bool(meal_name)
+        and not _is_overly_generic_name(meal_name)
+        and calories is not None
+        and protein is not None
+        and len(ingredients) >= 2
+        and not _has_incomplete_ingredients(ingredients)
+        and bool(reason)
+        and not _is_generic_reason(reason)
+        and not _is_forbidden_reason(reason)
+        and source_type in {"text", "image", "url"}
+    )
+
+
 def _has_any(text: str, keywords: list[str]) -> bool:
     lowered = text.lower()
     return any(keyword.lower() in lowered for keyword in keywords)
@@ -576,6 +689,8 @@ def _is_invalid_user_value(value: str) -> bool:
     invalid_tokens = [
         "unknown",
         "\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d",
+        "\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d",
+        "\u9910\u9ede\u5f71\u50cf\u7279\u5fb5\u4e0d\u8db3",
         "\u672a\u78ba\u8a8d",
         "\ufffd",
         "\u9285\u9919",

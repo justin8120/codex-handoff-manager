@@ -194,10 +194,10 @@ export function App() {
 
     try {
       let result: Meal
-      if (imageFile) {
-        result = await analyzeImage(imageFile, trimmedDescription)
-      } else if (trimmedLink) {
+      if (trimmedLink) {
         result = await analyzeUrl(trimmedLink)
+      } else if (imageFile) {
+        result = await analyzeImage(imageFile, trimmedDescription)
       } else {
         result = await analyzeText(trimmedDescription)
       }

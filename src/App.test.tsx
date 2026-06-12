@@ -246,6 +246,27 @@ describe("App", () => {
     expect(await screen.findByLabelText("AI 分析結果")).toBeInTheDocument()
   })
 
+  test("uses URL analysis without sending stale image text hint when URL is provided", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+    const file = new File(["fake"], "dumpling.jpg", { type: "image/jpeg" })
+
+    await user.type(screen.getByLabelText("文字描述"), "小籠包")
+    await user.upload(screen.getByLabelText("圖片上傳"), file)
+    await user.type(screen.getByLabelText("連結輸入"), "https://example.com/menu")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    await screen.findByLabelText("AI 分析結果")
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/analyze/url"))).toBe(
+      true,
+    )
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/analyze/image")),
+    ).toBe(false)
+  })
+
   test("shows backend offline message when API is unavailable", async () => {
     vi.stubGlobal(
       "fetch",

@@ -168,7 +168,10 @@ async def analyze_url(url: str) -> MealAnalysisResult:
         if fallback_enabled():
             return _fallback_result(f"URL fetch failed: {url}", "url", confidence=0.4)
         raise HTTPException(status_code=502, detail=f"URL fetch failed: {error}") from error
-    return _safe_analyze("url", text=f"URL: {url}\nExtracted content:\n{summary}")
+    result = _safe_analyze("url", text=f"URL: {url}\nExtracted content:\n{summary}")
+    if result.sourceType != "url":
+        return result.model_copy(update={"sourceType": "url"})
+    return result
 
 
 def _safe_analyze(

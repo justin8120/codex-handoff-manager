@@ -2,7 +2,11 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.ai_provider import normalize_meal_name
-from app.services.nutrition_enricher import normalize_and_enrich_result, validate_analysis_result
+from app.services.nutrition_enricher import (
+    calibrate_confidence,
+    normalize_and_enrich_result,
+    validate_analysis_result,
+)
 from app.services.openai_meal_analyzer import classify_text_hint
 from app.services.web_food_verifier import rerank_food_candidates
 
@@ -298,6 +302,46 @@ def test_enrichment_caps_fried_chicken_cutlet_confidence_and_warns_about_oil():
     assert "\u6cb9\u8102" in result.recommendationReason
 
 
+def test_confidence_calibration_caps_incomplete_ingredients():
+    confidence = calibrate_confidence(
+        {
+            "mealName": "\u70e4\u96de\u80f8\u8089\u98ef",
+            "mealType": "\u98ef\u985e",
+            "estimatedCalories": 600,
+            "estimatedProtein": 18,
+            "tags": ["\u9ad8\u86cb\u767d"],
+            "mainIngredients": ["\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d"],
+            "recommendationReason": "\u521d\u6b65\u4f30\u7b97\u7d50\u679c\u3002",
+            "confidence": 0.8,
+            "sourceType": "url",
+        },
+        source_type="url",
+    )
+
+    assert confidence <= 0.45
+
+
+def test_confidence_calibration_caps_fallback_results():
+    confidence = calibrate_confidence(
+        {
+            "id": "system-test",
+            "mealName": "\u9910\u9ede\u5065\u5eb7\u5efa\u8b70",
+            "mealType": "\u5065\u5eb7\u9910",
+            "estimatedCalories": 420,
+            "estimatedProtein": 32,
+            "tags": ["\u4f4e\u5361", "\u9ad8\u86cb\u767d"],
+            "mainIngredients": ["\u96de\u80f8\u8089", "\u852c\u83dc", "\u7cd9\u7c73"],
+            "recommendationReason": "\u7cfb\u7d71\u5df2\u6839\u64da\u8f38\u5165\u5167\u5bb9\u63d0\u4f9b\u9910\u9ede\u5065\u5eb7\u5efa\u8b70\u3002",
+            "confidence": 0.9,
+            "sourceType": "text",
+        },
+        source_type="text",
+        used_fallback=True,
+    )
+
+    assert confidence <= 0.55
+
+
 def test_enrichment_uses_visual_context_for_steak_egg_noodles():
     result = normalize_and_enrich_result(
         {
@@ -413,7 +457,7 @@ def test_mock_provider_identifies_shrimp_fried_rice(monkeypatch):
         "\u9752\u8525",
     ]
     assert payload["allergens"] == ["\u8766", "\u86cb"]
-    assert payload["confidence"] == 0.75
+    assert payload["confidence"] <= 0.55
     assert "fallback" not in payload["recommendationReason"]
     assert "AI \u670d\u52d9\u7121\u6cd5\u4f7f\u7528" not in payload["recommendationReason"]
 
@@ -433,7 +477,7 @@ def test_mock_provider_identifies_generic_fried_rice(monkeypatch):
     assert payload["tags"] == ["\u98ef\u985e", "\u4e2d\u5f0f\u6599\u7406"]
     assert payload["mainIngredients"] == ["\u767d\u98ef", "\u96de\u86cb", "\u9752\u8525"]
     assert payload["allergens"] == ["\u86cb"]
-    assert payload["confidence"] == 0.7
+    assert payload["confidence"] <= 0.55
 
 
 def test_mock_provider_normalizes_ton_i_text_hint_to_butadon(monkeypatch):
@@ -451,7 +495,7 @@ def test_mock_provider_normalizes_ton_i_text_hint_to_butadon(monkeypatch):
     assert payload["tags"] == ["\u65e5\u5f0f", "\u4e3c\u98ef", "\u8c6c\u8089"]
     assert payload["mainIngredients"] == ["\u767d\u98ef", "\u8c6c\u8089\u7247", "\u96de\u86cb", "\u6d77\u82d4"]
     assert payload["allergens"] == ["\u86cb"]
-    assert payload["confidence"] == 0.75
+    assert payload["confidence"] <= 0.55
 
 
 def test_analyze_image_with_text_hint_ton_i_normalizes_to_butadon(monkeypatch):
@@ -636,7 +680,7 @@ def test_analyze_image_with_peanut_hint_uses_peanut(monkeypatch):
     assert payload["estimatedProtein"] == 26
     assert payload["mainIngredients"] == ["\u82b1\u751f"]
     assert "\u82b1\u751f" in payload["allergens"]
-    assert payload["confidence"] == 0.9
+    assert payload["confidence"] <= 0.55
 
 
 def test_analyze_image_with_watermelon_hint_uses_watermelon(monkeypatch):
@@ -1076,6 +1120,85 @@ def test_analyze_endpoints_never_return_zero_nutrition(monkeypatch):
         assert payload["estimatedCalories"] > 0
         assert payload["estimatedProtein"] > 0
         assert payload["mainIngredients"]
+
+
+def test_analyze_url_keeps_url_source_type_and_caps_incomplete_result(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    async def fake_fetch_url_summary(url):
+        return "Title: menu\nPage text: \u70e4\u96de\u80f8\u8089\u98ef"
+
+    def fake_chat_completion(provider_name, text, source_type, image_url):
+        return normalize_and_enrich_result(
+            {
+                "id": "fake-url",
+                "mealName": "\u70e4\u96de\u80f8\u8089\u98ef",
+                "mealType": "\u98ef\u985e",
+                "estimatedCalories": 600,
+                "estimatedProtein": 18,
+                "tags": ["\u9ad8\u86cb\u767d"],
+                "mainIngredients": ["\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d"],
+                "allergens": [],
+                "recommendationReason": "\u6587\u5b57\u63cf\u8ff0\u300c\u5c0f\u7c60\u5305\u300d\u50c5\u4f5c\u70ba\u8f14\u52a9\u63d0\u793a\u3002",
+                "confidence": 0.8,
+                "sourceType": "image",
+                "createdAt": "2026-06-12T00:00:00+00:00",
+                "isAiGenerated": True,
+            },
+            original_text="menu",
+        )
+
+    monkeypatch.setattr(openai_meal_analyzer, "fetch_url_summary", fake_fetch_url_summary)
+    monkeypatch.setattr(openai_meal_analyzer, "_call_chat_completion", fake_chat_completion)
+
+    response = client.post("/api/analyze/url", json={"url": "https://example.com/menu"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sourceType"] == "url"
+    assert payload["confidence"] <= 0.45
+    assert "\u5c0f\u7c60\u5305" not in payload["recommendationReason"]
+    assert "\u7121\u6cd5\u5b8c\u6574\u89e3\u6790" in payload["recommendationReason"]
+
+
+def test_analyze_url_fetch_failure_uses_low_confidence(monkeypatch):
+    from app.services import openai_meal_analyzer
+    import httpx
+
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    async def fail_fetch_url_summary(url):
+        raise httpx.HTTPError("network unavailable")
+
+    monkeypatch.setattr(openai_meal_analyzer, "fetch_url_summary", fail_fetch_url_summary)
+
+    response = client.post("/api/analyze/url", json={"url": "https://example.com/menu"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sourceType"] == "url"
+    assert payload["confidence"] <= 0.4
+
+
+def test_analyze_source_types_remain_distinct(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    text_response = client.post("/api/analyze/text", json={"description": "\u8336\u8449\u86cb"})
+    image_response = client.post(
+        "/api/analyze/image",
+        files={"file": ("meal.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert text_response.status_code == 200
+    assert image_response.status_code == 200
+    assert text_response.json()["sourceType"] == "text"
+    assert image_response.json()["sourceType"] == "image"
 
 
 def test_mock_provider_applies_bento_chicken_beef_and_peanut_rules(monkeypatch):
