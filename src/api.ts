@@ -1,4 +1,4 @@
-import type { Allergen, DietTag, HealthGoal, Meal, MealSourceType } from "./mealData"
+import type { Allergen, DietTag, HealthGoal, Meal, MealGoal, MealSourceType } from "./mealData"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
 
@@ -140,14 +140,36 @@ export async function recommendMeals(payload: RecommendPayload): Promise<Meal[]>
   return response.map(backendMealToMeal)
 }
 
-function inferGoals(meal: BackendMeal): HealthGoal[] {
-  const goals = new Set<HealthGoal>()
-  if (meal.estimatedCalories <= 500 || meal.tags.includes("低卡") || meal.tags.includes("低脂")) {
+export function inferGoals(meal: BackendMeal): MealGoal[] {
+  const goals = new Set<MealGoal>()
+  const tags = meal.tags.join(" ")
+  const profile = `${meal.mealName} ${meal.mealType} ${tags} ${meal.recommendationReason}`
+  const isFriedOrHighFat = /炸物|油炸|高脂肪|高熱量/.test(profile)
+  const isHighCalorie = meal.estimatedCalories >= 700
+  const isExplicitLowCalorie = meal.tags.includes("低卡")
+  const isHealthyLeanMeal =
+    !isFriedOrHighFat &&
+    (/雞胸肉健康餐|水煮餐|沙拉|蔬菜/.test(profile) ||
+      meal.tags.includes("健康餐") ||
+      meal.tags.includes("低脂"))
+
+  if (
+    (meal.estimatedCalories <= 450 || isExplicitLowCalorie || isHealthyLeanMeal) &&
+    !isFriedOrHighFat &&
+    (!isHighCalorie || isExplicitLowCalorie)
+  ) {
     goals.add("減脂")
   }
-  if (meal.estimatedProtein >= 25 || meal.tags.includes("高蛋白")) goals.add("增肌")
-  if (meal.tags.includes("健康餐") || meal.estimatedProtein >= 15) goals.add("均衡飲食")
-  goals.add("健康維持")
+  if (meal.estimatedProtein >= 25 || meal.tags.includes("高蛋白")) {
+    goals.add("增肌")
+    goals.add("高蛋白補充")
+  }
+  if (isFriedOrHighFat) {
+    goals.add("偶爾享用")
+    return [...goals]
+  }
+  if (isHealthyLeanMeal || meal.estimatedProtein >= 15) goals.add("均衡飲食")
+  if (meal.estimatedCalories <= 450 || isHealthyLeanMeal) goals.add("健康維持")
   return [...goals]
 }
 

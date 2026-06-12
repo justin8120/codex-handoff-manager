@@ -271,6 +271,33 @@ def test_enrichment_normalizes_chicken_steak_with_noodles():
     assert "\u9ea9\u8cea" in result.allergens
 
 
+def test_enrichment_caps_fried_chicken_cutlet_confidence_and_warns_about_oil():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-fried-chicken",
+            "mealName": "\u70b8\u96de\u6392",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 1.0,
+            "sourceType": "image",
+            "createdAt": "2026-06-12T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert result.mealName == "\u70b8\u96de\u6392"
+    assert result.confidence <= 0.85
+    assert result.estimatedCalories == 600
+    assert result.estimatedProtein == 35
+    assert result.mainIngredients == ["\u96de\u8089", "\u9eb5\u8863", "\u6cb9"]
+    assert "\u6cb9\u8102" in result.recommendationReason
+
+
 def test_enrichment_uses_visual_context_for_steak_egg_noodles():
     result = normalize_and_enrich_result(
         {

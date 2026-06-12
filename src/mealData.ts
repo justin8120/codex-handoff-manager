@@ -1,4 +1,5 @@
 export type HealthGoal = "減脂" | "增肌" | "均衡飲食" | "健康維持"
+export type MealGoal = HealthGoal | "高蛋白補充" | "偶爾享用"
 
 export type DietTag =
   | "低卡"
@@ -22,7 +23,7 @@ export type Meal = {
   calories: number
   protein: number
   tags: DietTag[]
-  goals: HealthGoal[]
+  goals: MealGoal[]
   ingredients: string[]
   allergens: Allergen[]
   reason: string

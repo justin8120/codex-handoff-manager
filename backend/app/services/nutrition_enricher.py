@@ -292,6 +292,10 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
     if _is_forbidden_reason(reason) or _is_generic_reason(reason) or not reason:
         reason = str(known.get("recommendationReason") or DEFAULT_REASON)
 
+    confidence = max(0, min(float(payload.get("confidence") or 0.55), 1))
+    if meal_name == "\u70b8\u96de\u6392":
+        confidence = min(confidence, 0.85)
+
     enriched = MealAnalysisResult(
         id=str(payload.get("id") or f"system-{uuid4()}"),
         mealName=meal_name,
@@ -302,7 +306,7 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         mainIngredients=normalize_user_facing_list(main_ingredients),
         allergens=normalize_user_facing_list(allergens),
         recommendationReason=normalize_user_facing_text(reason),
-        confidence=max(0, min(float(payload.get("confidence") or 0.55), 1)),
+        confidence=confidence,
         sourceType=source_type,
         createdAt=str(payload.get("createdAt") or datetime.now(timezone.utc).isoformat()),
         isAiGenerated=bool(payload.get("isAiGenerated", True)),

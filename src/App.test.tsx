@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { App } from "./App"
+import { inferGoals, type BackendMeal } from "./api"
 
 const backendMeals = [
   {
@@ -64,6 +65,39 @@ const analysisMeal = {
   confidence: 0.91,
   sourceType: "text",
   createdAt: "2026-06-03T00:00:00+00:00",
+  isAiGenerated: true,
+}
+
+const friedChickenCutletMeal: BackendMeal = {
+  id: "fried-chicken-cutlet",
+  mealName: "炸雞排",
+  mealType: "炸物 / 小吃",
+  estimatedCalories: 600,
+  estimatedProtein: 35,
+  tags: ["炸物", "雞肉", "高蛋白"],
+  mainIngredients: ["雞肉", "麵衣", "油"],
+  allergens: ["麩質"],
+  recommendationReason:
+    "系統根據圖片中可見的大型裹粉油炸雞排判斷此餐點為炸雞排。此餐點蛋白質含量較高，但油炸料理熱量與油脂也較高，建議控制份量。",
+  confidence: 0.85,
+  sourceType: "image",
+  createdAt: "2026-06-12T00:00:00+00:00",
+  isAiGenerated: true,
+}
+
+const leanChickenMeal: BackendMeal = {
+  id: "lean-chicken",
+  mealName: "雞胸肉健康餐",
+  mealType: "健康餐",
+  estimatedCalories: 420,
+  estimatedProtein: 32,
+  tags: ["低卡", "高蛋白", "低脂", "健康餐"],
+  mainIngredients: ["雞胸肉", "蔬菜", "糙米"],
+  allergens: [],
+  recommendationReason: "雞胸肉提供高蛋白與低脂肪，適合減脂與日常健康維持。",
+  confidence: 0.8,
+  sourceType: "text",
+  createdAt: "2026-06-12T00:00:00+00:00",
   isAiGenerated: true,
 }
 
@@ -259,5 +293,25 @@ describe("App", () => {
     expect(within(history).getByText("目標：均衡飲食")).toBeInTheDocument()
     expect(within(history).getByText("標籤：低卡")).toBeInTheDocument()
     expect(within(history).getByText(/結果數量：/)).toBeInTheDocument()
+  })
+
+  test("infers conservative goals for fried chicken cutlet", () => {
+    const goals = inferGoals(friedChickenCutletMeal)
+
+    expect(goals).toContain("增肌")
+    expect(goals).toContain("高蛋白補充")
+    expect(goals).toContain("偶爾享用")
+    expect(goals).not.toContain("健康維持")
+    expect(goals).not.toContain("均衡飲食")
+    expect(goals).not.toContain("減脂")
+  })
+
+  test("infers fat loss and health maintenance goals for lean high-protein meals", () => {
+    const goals = inferGoals(leanChickenMeal)
+
+    expect(goals).toContain("減脂")
+    expect(goals).toContain("健康維持")
+    expect(goals).toContain("均衡飲食")
+    expect(goals).toContain("增肌")
   })
 })
