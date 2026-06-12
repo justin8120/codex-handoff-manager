@@ -323,7 +323,7 @@ async function main() {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
         setter.call(input, "");
         input.dispatchEvent(new Event("input", { bubbles: true }));
-        document.querySelector("#allergen-海鮮").click();
+        document.querySelector("#avoid-海鮮").click();
         [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "搜尋 / 推薦").click();
         setTimeout(() => resolve({
           meals: [...document.querySelectorAll("#results .meal-card h3")].map((heading) => heading.textContent.trim()),

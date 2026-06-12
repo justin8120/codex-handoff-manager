@@ -1339,3 +1339,18 @@ def test_analyze_url_rejects_empty_url():
 
     assert response.status_code == 400
     assert response.json()["detail"] == "\u9910\u9ede\u9023\u7d50\u4e0d\u53ef\u70ba\u7a7a\u3002"
+
+
+def test_recommend_accepts_unknown_custom_tags_and_avoid_ingredients():
+    response = client.post(
+        "/api/recommend",
+        json={
+            "healthGoal": "\u5747\u8861\u98f2\u98df",
+            "tags": ["\u5c11\u6cb9", "\u4f4e\u9209"],
+            "excludedIngredients": ["\u4e0d\u5403\u8fa3", "\u7121\u9ea9\u8cea"],
+            "keyword": None,
+        },
+    )
+
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)

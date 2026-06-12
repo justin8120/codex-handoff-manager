@@ -38,7 +38,12 @@ type QueryRecord = {
   resultCount: number
 }
 
+type CustomListKind = "tag" | "avoid"
+
 const defaultGoal: HealthGoal = "均衡飲食"
+const customDietTagsKey = "smartDiet.customDietTags"
+const customAvoidIngredientsKey = "smartDiet.customAvoidIngredients"
+const maxCustomItems = 20
 
 function toggleValue<T>(values: T[], value: T) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
@@ -56,6 +61,33 @@ function formatProtein(value: number) {
   return value > 0 ? `${value}g` : "未估算"
 }
 
+function loadStoredList(key: string) {
+  try {
+    const payload = window.localStorage.getItem(key)
+    if (!payload) return []
+    const parsed = JSON.parse(payload)
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : []
+  } catch {
+    return []
+  }
+}
+
+function saveStoredList(key: string, values: string[]) {
+  window.localStorage.setItem(key, JSON.stringify(values))
+}
+
+function validateCustomItem(value: string, existing: string[], label: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return { value: trimmed, error: `${label}不可為空。` }
+  if ([...trimmed].length > 12 || trimmed.length > 24) {
+    return { value: trimmed, error: `${label}最長 12 個中文字或 24 個英文字元。` }
+  }
+  if (existing.includes(trimmed)) return { value: trimmed, error: `此${label}已存在。` }
+  return { value: trimmed, error: "" }
+}
+
 function filterLocalMeals(
   mealDataset: Meal[],
   goal: HealthGoal,
@@ -68,7 +100,9 @@ function filterLocalMeals(
     const matchesGoal = meal.goals.includes(goal)
     const matchesTags = selectedTags.every((tag) => meal.tags.includes(tag))
     const avoidsAllergens = excludedAllergens.every(
-      (allergen) => !meal.allergens.includes(allergen),
+      (allergen) =>
+        !meal.allergens.includes(allergen) &&
+        !meal.ingredients.some((ingredient) => ingredient.includes(allergen)),
     )
     const matchesKeyword =
       normalizedKeyword.length === 0 ||
@@ -132,6 +166,95 @@ function MealCard({ meal }: { meal: Meal }) {
   )
 }
 
+type CustomChoiceGroupProps = {
+  legend: string
+  defaultItems: string[]
+  customItems: string[]
+  selectedItems: string[]
+  inputValue: string
+  inputLabel: string
+  buttonLabel: string
+  placeholder: string
+  message: string
+  kind: CustomListKind
+  onInputChange: (value: string) => void
+  onAdd: () => void
+  onToggle: (value: string) => void
+  onDelete: (value: string) => void
+}
+
+function CustomChoiceGroup({
+  legend,
+  defaultItems,
+  customItems,
+  selectedItems,
+  inputValue,
+  inputLabel,
+  buttonLabel,
+  placeholder,
+  message,
+  kind,
+  onInputChange,
+  onAdd,
+  onToggle,
+  onDelete,
+}: CustomChoiceGroupProps) {
+  return (
+    <fieldset className="control-group">
+      <legend>{legend}</legend>
+      <div className="choice-grid">
+        {defaultItems.map((item) => (
+          <label className="choice" htmlFor={`${kind}-${item}`} key={item}>
+            <input
+              id={`${kind}-${item}`}
+              type="checkbox"
+              checked={selectedItems.includes(item)}
+              onChange={() => onToggle(item)}
+            />
+            {item}
+          </label>
+        ))}
+        {customItems.map((item) => (
+          <span className="choice custom-choice" key={item}>
+            <label htmlFor={`${kind}-${item}`}>
+              <input
+                id={`${kind}-${item}`}
+                type="checkbox"
+                checked={selectedItems.includes(item)}
+                onChange={() => onToggle(item)}
+              />
+              {item}
+            </label>
+            <button
+              aria-label={`刪除${item}`}
+              className="delete-chip"
+              type="button"
+              onClick={() => onDelete(item)}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="custom-input-row">
+        <label className="sr-only" htmlFor={`${kind}-custom-input`}>
+          {inputLabel}
+        </label>
+        <input
+          id={`${kind}-custom-input`}
+          value={inputValue}
+          onChange={(event) => onInputChange(event.target.value)}
+          placeholder={placeholder}
+        />
+        <button className="utility-button" type="button" onClick={onAdd}>
+          {buttonLabel}
+        </button>
+      </div>
+      {message ? <p className="helper-text">{message}</p> : null}
+    </fieldset>
+  )
+}
+
 export function App() {
   const [mealDataset, setMealDataset] = useState<Meal[]>(meals)
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null)
@@ -140,6 +263,16 @@ export function App() {
   const [goal, setGoal] = useState<HealthGoal>(defaultGoal)
   const [selectedTags, setSelectedTags] = useState<DietTag[]>([])
   const [excludedAllergens, setExcludedAllergens] = useState<Allergen[]>([])
+  const [customDietTags, setCustomDietTags] = useState<DietTag[]>(
+    () => loadStoredList(customDietTagsKey) as DietTag[],
+  )
+  const [customAvoidIngredients, setCustomAvoidIngredients] = useState<Allergen[]>(
+    () => loadStoredList(customAvoidIngredientsKey) as Allergen[],
+  )
+  const [newDietTag, setNewDietTag] = useState("")
+  const [newAvoidIngredient, setNewAvoidIngredient] = useState("")
+  const [tagMessage, setTagMessage] = useState("")
+  const [avoidMessage, setAvoidMessage] = useState("")
   const [keyword, setKeyword] = useState("")
   const [hasSearched, setHasSearched] = useState(false)
   const [recommendedMeals, setRecommendedMeals] = useState<Meal[]>(meals)
@@ -173,11 +306,66 @@ export function App() {
   const displayedMeals = hasSearched ? recommendedMeals : mealDataset
   const aiStatusLabel = backendError ? "未連線" : "已連線"
   const apiStatusLabel = backendHealth?.aiConfigured ? "已設定" : "未設定"
+  const allDietTags = useMemo(() => [...dietTags, ...customDietTags], [customDietTags])
+  const allAvoidIngredients = useMemo(
+    () => [...allergens, ...customAvoidIngredients],
+    [customAvoidIngredients],
+  )
 
   const localRecommendation = useMemo(
     () => filterLocalMeals(mealDataset, goal, selectedTags, excludedAllergens, keyword),
     [excludedAllergens, goal, keyword, mealDataset, selectedTags],
   )
+
+  const addCustomDietTag = () => {
+    const { value, error } = validateCustomItem(newDietTag, allDietTags, "標籤")
+    if (error) {
+      setTagMessage(error)
+      return
+    }
+    if (customDietTags.length >= maxCustomItems) {
+      setTagMessage("自訂標籤數量已達上限。")
+      return
+    }
+    const next = [...customDietTags, value]
+    setCustomDietTags(next)
+    saveStoredList(customDietTagsKey, next)
+    setNewDietTag("")
+    setTagMessage("標籤已新增。")
+  }
+
+  const addCustomAvoidIngredient = () => {
+    const { value, error } = validateCustomItem(newAvoidIngredient, allAvoidIngredients, "禁忌食材")
+    if (error) {
+      setAvoidMessage(error)
+      return
+    }
+    if (customAvoidIngredients.length >= maxCustomItems) {
+      setAvoidMessage("自訂禁忌食材數量已達上限。")
+      return
+    }
+    const next = [...customAvoidIngredients, value]
+    setCustomAvoidIngredients(next)
+    saveStoredList(customAvoidIngredientsKey, next)
+    setNewAvoidIngredient("")
+    setAvoidMessage("禁忌食材已新增。")
+  }
+
+  const deleteCustomDietTag = (tag: string) => {
+    const next = customDietTags.filter((item) => item !== tag)
+    setCustomDietTags(next)
+    saveStoredList(customDietTagsKey, next)
+    setSelectedTags((items) => items.filter((item) => item !== tag))
+    setTagMessage("自訂標籤已刪除。")
+  }
+
+  const deleteCustomAvoidIngredient = (item: string) => {
+    const next = customAvoidIngredients.filter((value) => value !== item)
+    setCustomAvoidIngredients(next)
+    saveStoredList(customAvoidIngredientsKey, next)
+    setExcludedAllergens((items) => items.filter((value) => value !== item))
+    setAvoidMessage("自訂禁忌食材已刪除。")
+  }
 
   const handleAnalyzeMeal = async () => {
     const trimmedDescription = description.trim()
@@ -320,11 +508,11 @@ export function App() {
             <p>資料集餐點</p>
           </div>
           <div>
-            <span>{dietTags.length}</span>
+            <span>{allDietTags.length}</span>
             <p>飲食標籤</p>
           </div>
           <div>
-            <span>{allergens.length}</span>
+            <span>{allAvoidIngredients.length}</span>
             <p>禁忌條件</p>
           </div>
         </section>
@@ -443,39 +631,39 @@ export function App() {
               </label>
             </div>
 
-            <fieldset className="control-group">
-              <legend>飲食標籤</legend>
-              <div className="choice-grid">
-                {dietTags.map((tag) => (
-                  <label className="choice" htmlFor={`tag-${tag}`} key={tag}>
-                    <input
-                      id={`tag-${tag}`}
-                      type="checkbox"
-                      checked={selectedTags.includes(tag)}
-                      onChange={() => setSelectedTags((tags) => toggleValue(tags, tag))}
-                    />
-                    {tag}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            <CustomChoiceGroup
+              legend="飲食標籤"
+              defaultItems={dietTags}
+              customItems={customDietTags}
+              selectedItems={selectedTags}
+              inputValue={newDietTag}
+              inputLabel="自訂飲食標籤"
+              buttonLabel="新增標籤"
+              placeholder="例如：少油、無糖、低鈉"
+              message={tagMessage}
+              kind="tag"
+              onInputChange={setNewDietTag}
+              onAdd={addCustomDietTag}
+              onToggle={(tag) => setSelectedTags((tags) => toggleValue(tags, tag))}
+              onDelete={deleteCustomDietTag}
+            />
 
-            <fieldset className="control-group">
-              <legend>過敏原或禁忌食材</legend>
-              <div className="choice-grid">
-                {allergens.map((allergen) => (
-                  <label className="choice" htmlFor={`allergen-${allergen}`} key={allergen}>
-                    <input
-                      id={`allergen-${allergen}`}
-                      type="checkbox"
-                      checked={excludedAllergens.includes(allergen)}
-                      onChange={() => setExcludedAllergens((items) => toggleValue(items, allergen))}
-                    />
-                    {allergen}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            <CustomChoiceGroup
+              legend="過敏原或禁忌食材"
+              defaultItems={allergens}
+              customItems={customAvoidIngredients}
+              selectedItems={excludedAllergens}
+              inputValue={newAvoidIngredient}
+              inputLabel="自訂禁忌食材"
+              buttonLabel="新增禁忌食材"
+              placeholder="例如：不吃辣、無麩質、不吃豬肉"
+              message={avoidMessage}
+              kind="avoid"
+              onInputChange={setNewAvoidIngredient}
+              onAdd={addCustomAvoidIngredient}
+              onToggle={(item) => setExcludedAllergens((items) => toggleValue(items, item))}
+              onDelete={deleteCustomAvoidIngredient}
+            />
 
             <button className="primary-action recommend-button" onClick={handleRecommend}>
               搜尋 / 推薦

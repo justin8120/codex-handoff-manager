@@ -160,11 +160,13 @@ function mockOnlineApi() {
 
 describe("App", () => {
   beforeEach(() => {
+    window.localStorage.clear()
     vi.stubGlobal("fetch", mockOnlineApi())
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    window.localStorage.clear()
   })
 
   test("renders the smart diet recommendation system and AI analysis section", async () => {
@@ -298,6 +300,73 @@ describe("App", () => {
 
     expect(await screen.findByText(/AI 後端尚未啟動/)).toBeInTheDocument()
     expect(screen.getByText(/目前使用離線展示資料/)).toBeInTheDocument()
+  })
+
+  test("adds custom diet tag and sends it in recommendation payload", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.type(screen.getByLabelText("自訂飲食標籤"), "少油")
+    await user.click(screen.getByRole("button", { name: "新增標籤" }))
+    await user.click(screen.getByLabelText("少油"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    expect(screen.getByText("標籤已新增。")).toBeInTheDocument()
+    const recommendCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/recommend"),
+    )
+    expect(JSON.parse(String(recommendCall?.[1]?.body)).tags).toContain("少油")
+  })
+
+  test("rejects blank and duplicate custom diet tags", async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole("button", { name: "新增標籤" }))
+    expect(screen.getByText("標籤不可為空。")).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText("自訂飲食標籤"), "低鈉")
+    await user.click(screen.getByRole("button", { name: "新增標籤" }))
+    await user.type(screen.getByLabelText("自訂飲食標籤"), "低鈉")
+    await user.click(screen.getByRole("button", { name: "新增標籤" }))
+    expect(screen.getByText("此標籤已存在。")).toBeInTheDocument()
+  })
+
+  test("custom diet tag persists after rerender and can be deleted", async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<App />)
+
+    await user.type(screen.getByLabelText("自訂飲食標籤"), "高纖")
+    await user.click(screen.getByRole("button", { name: "新增標籤" }))
+    expect(window.localStorage.getItem("smartDiet.customDietTags")).toContain("高纖")
+    unmount()
+
+    render(<App />)
+    expect(await screen.findByLabelText("高纖")).toBeInTheDocument()
+    await user.click(screen.getByLabelText("高纖"))
+    await user.click(screen.getByRole("button", { name: "刪除高纖" }))
+    expect(screen.queryByLabelText("高纖")).not.toBeInTheDocument()
+    expect(window.localStorage.getItem("smartDiet.customDietTags")).not.toContain("高纖")
+  })
+
+  test("adds custom avoid ingredient and sends it in recommendation payload", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.type(screen.getByLabelText("自訂禁忌食材"), "不吃辣")
+    await user.click(screen.getByRole("button", { name: "新增禁忌食材" }))
+    await user.click(screen.getByLabelText("不吃辣"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    expect(screen.getByText("禁忌食材已新增。")).toBeInTheDocument()
+    const recommendCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/recommend"),
+    )
+    expect(JSON.parse(String(recommendCall?.[1]?.body)).excludedIngredients).toContain("不吃辣")
   })
 
   test("excludes seafood meals through mocked recommendation API", async () => {

@@ -19,6 +19,7 @@ export type DietTag =
   | "炸物"
   | "高糖"
   | "高脂肪"
+  | string
 
 export type Allergen = "花生" | "牛肉" | "海鮮" | "乳製品" | "蛋" | "麩質" | string
 
