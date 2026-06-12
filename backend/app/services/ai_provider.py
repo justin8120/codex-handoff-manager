@@ -14,6 +14,8 @@ ROMANIZED_MEAL_NAMES = {
     "chicken steak and egg noodles": "\u96de\u6392\u86cb\u9eb5",
     "steak and egg noodles": "\u725b\u6392\u86cb\u9eb5",
     "chicken steak with noodles": "\u96de\u6392\u9eb5",
+    "fried chicken steak": "\u70b8\u96de\u6392",
+    "fried chicken cutlet": "\u70b8\u96de\u6392",
     "steak with noodles": "\u725b\u6392\u9eb5",
     "steak and eggs": "\u725b\u6392\u86cb",
     "chicken steak": "\u96de\u6392",

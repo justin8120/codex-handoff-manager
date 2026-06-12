@@ -37,6 +37,15 @@ CHICKEN_STEAK_NOODLES_REASON = (
     "\u71b1\u91cf\u8207\u6cb9\u8102\u4e5f\u6703\u504f\u9ad8\uff0c"
     "\u5efa\u8b70\u642d\u914d\u852c\u83dc\u4e26\u63a7\u5236\u4efd\u91cf\u3002"
 )
+FRIED_CHICKEN_CUTLET_REASON = (
+    "\u7cfb\u7d71\u6839\u64da\u5716\u7247\u4e2d\u53ef\u898b\u7684\u5927\u578b\u88f9\u7c89"
+    "\u6cb9\u70b8\u96de\u6392\u5224\u65b7\u6b64\u9910\u9ede\u70ba\u70b8\u96de\u6392\u3002"
+    "\u5716\u7247\u4e2d\u672a\u660e\u78ba\u770b\u5230\u9eb5\u689d\u6216\u6e6f\u54c1\uff0c"
+    "\u56e0\u6b64\u4e0d\u5224\u65b7\u70ba\u96de\u6392\u9eb5\u3002"
+    "\u6b64\u9910\u9ede\u86cb\u767d\u8cea\u542b\u91cf\u8f03\u9ad8\uff0c"
+    "\u4f46\u6cb9\u70b8\u6599\u7406\u71b1\u91cf\u8207\u6cb9\u8102\u4e5f\u8f03\u9ad8\uff0c"
+    "\u5efa\u8b70\u63a7\u5236\u4efd\u91cf\u3002"
+)
 STEAK_EGG_NOODLES_REASON = (
     "\u7cfb\u7d71\u8fa8\u8b58\u6b64\u9910\u9ede\u70ba\u725b\u6392\u86cb\u9eb5\uff0c"
     "\u4e3b\u8981\u7531\u9eb5\u689d\u3001\u725b\u6392\u3001\u96de\u86cb\u8207\u9752\u83dc\u7d44\u6210\u3002"
@@ -153,10 +162,20 @@ KNOWN_MEALS: dict[str, dict[str, Any]] = {
     "\u96de\u6392": {
         "estimatedCalories": 600,
         "estimatedProtein": 35,
-        "mealType": "\u70b8\u7269",
+        "mealType": "\u70b8\u7269 / \u5c0f\u5403",
         "tags": ["\u96de\u8089", "\u70b8\u7269", "\u9ad8\u86cb\u767d"],
-        "mainIngredients": ["\u96de\u8089", "\u9eb5\u8863"],
+        "mainIngredients": ["\u96de\u8089", "\u9eb5\u8863", "\u6cb9"],
         "allergens": ["\u9ea9\u8cea"],
+        "recommendationReason": FRIED_CHICKEN_CUTLET_REASON,
+    },
+    "\u70b8\u96de\u6392": {
+        "estimatedCalories": 600,
+        "estimatedProtein": 35,
+        "mealType": "\u70b8\u7269 / \u5c0f\u5403",
+        "tags": ["\u70b8\u7269", "\u96de\u8089", "\u9ad8\u86cb\u767d"],
+        "mainIngredients": ["\u96de\u8089", "\u9eb5\u8863", "\u6cb9"],
+        "allergens": ["\u9ea9\u8cea"],
+        "recommendationReason": FRIED_CHICKEN_CUTLET_REASON,
     },
     "\u96de\u8089\u9eb5": {
         "estimatedCalories": 650,
@@ -244,7 +263,8 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         meal_name = original_meal_name
     meal_name = _contextual_meal_name(meal_name, payload, original_text)
     known = KNOWN_MEALS.get(meal_name, {})
-    meal_type = normalize_user_facing_text(str(payload.get("mealType") or known.get("mealType") or ""))
+    raw_meal_type = normalize_user_facing_text(str(payload.get("mealType") or ""))
+    meal_type = str(known.get("mealType") or "") if _is_generic_meal_type(raw_meal_type) else raw_meal_type
     tags = _merge_lists(_string_list(payload.get("tags")), _string_list(known.get("tags")))
     main_ingredients = [
         ingredient
@@ -371,6 +391,7 @@ def _merge_lists(primary: list[str], fallback: list[str]) -> list[str]:
 
 
 def _contextual_meal_name(meal_name: str, payload: dict[str, Any], original_text: str | None) -> str:
+    source_type = payload.get("sourceType")
     context_parts = [
         meal_name,
         str(original_text or ""),
@@ -380,7 +401,15 @@ def _contextual_meal_name(meal_name: str, payload: dict[str, Any], original_text
         " ".join(_string_list(payload.get("mainIngredients"))),
     ]
     context = normalize_user_facing_text(" ".join(context_parts)).lower()
-    has_noodles = _has_any(context, ["\u9eb5", "noodle"])
+    evidence_context_parts = [
+        str(original_text or ""),
+        str(payload.get("mealType") or ""),
+        str(payload.get("recommendationReason") or ""),
+        " ".join(_string_list(payload.get("tags"))),
+        " ".join(_string_list(payload.get("mainIngredients"))),
+    ]
+    evidence_context = normalize_user_facing_text(" ".join(evidence_context_parts)).lower()
+    has_noodles = _has_noodle_evidence(evidence_context if source_type == "image" else context)
     egg_context = context.replace("\u86cb\u767d\u8cea", "").replace("\u9ad8\u86cb\u767d", "")
     has_egg = _has_any(
         egg_context,
@@ -389,6 +418,15 @@ def _contextual_meal_name(meal_name: str, payload: dict[str, Any], original_text
     has_steak = _has_any(context, ["\u725b\u6392", "steak"])
     has_chicken_steak = _has_any(context, ["\u96de\u6392", "chicken steak"])
     has_chicken = _has_any(context, ["\u96de\u8089", "chicken"])
+    has_fried_chicken_cutlet = _has_any(
+        context,
+        ["\u70b8\u96de\u6392", "\u96de\u6392", "chicken steak", "fried chicken steak", "fried chicken cutlet"],
+    )
+
+    if source_type == "image" and meal_name == "\u70b8\u96de\u6392":
+        return "\u70b8\u96de\u6392"
+    if source_type == "image" and has_fried_chicken_cutlet and not has_noodles:
+        return "\u70b8\u96de\u6392"
 
     if has_chicken_steak and has_noodles and has_egg:
         return "\u96de\u6392\u86cb\u9eb5"
@@ -401,6 +439,22 @@ def _contextual_meal_name(meal_name: str, payload: dict[str, Any], original_text
     if has_steak and has_egg and meal_name in {"\u725b\u6392", "\u725b\u6392\u86cb", "\u9eb5\u98df", "\u672a\u547d\u540d\u9910\u9ede"}:
         return "\u725b\u6392\u86cb"
     return meal_name
+
+
+def _has_noodle_evidence(context: str) -> bool:
+    if _has_any(
+        context,
+        [
+            "\u672a\u660e\u78ba\u770b\u5230\u9eb5\u689d",
+            "\u6c92\u6709\u9eb5\u689d",
+            "\u672a\u770b\u5230\u9eb5\u689d",
+            "\u4e0d\u5224\u65b7\u70ba\u96de\u6392\u9eb5",
+            "no noodles",
+            "no visible noodles",
+        ],
+    ):
+        return False
+    return _has_any(context, ["\u9eb5\u689d", "\u9eb5\u98df", "\u53ef\u898b\u9eb5", "\u6e6f\u9eb5", "noodles", "noodle"])
 
 
 def _infer_type(meal_name: str, tags: list[str]) -> str:
@@ -476,10 +530,15 @@ def _is_overly_generic_name(meal_name: str) -> bool:
     }
 
 
+def _is_generic_meal_type(meal_type: str) -> bool:
+    return not meal_type or meal_type in {"\u7d9c\u5408\u9910", "\u9910\u9ede", "\u98df\u7269", "\u6599\u7406"}
+
+
 def _is_generic_reason(reason: str) -> bool:
     return reason.strip() in {
         "\u7cfb\u7d71\u5df2\u6839\u64da\u5019\u9078\u9910\u9ede\u8207\u53ef\u898b\u98df\u6750\u7279\u5fb5\u91cd\u65b0\u6821\u6b63\u8fa8\u8b58\u7d50\u679c\u3002",
         "\u7cfb\u7d71\u5df2\u5b8c\u6210\u9910\u9ede\u5206\u6790\u3002",
+        "AI \u5df2\u5b8c\u6210\u9910\u9ede\u5206\u6790\u3002",
     }
 
 

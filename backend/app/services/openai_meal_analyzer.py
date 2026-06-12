@@ -350,6 +350,9 @@ def _call_image_candidate_completion(
                     "Use Traditional Chinese meal names in candidates; avoid generic English names such as "
                     "Steak and Eggs, Food, Rice Bowl, or Noodles. "
                     "Each candidate needs at least 3 concrete visual evidence items. "
+                    "Do not infer side dishes or staple foods that are not visible. "
+                    "If noodles are not visible, do not output a noodle meal. "
+                    "If only a fried chicken cutlet is visible, output \u70b8\u96de\u6392. "
                     "If steak, egg, and noodles are visible, prefer \u725b\u6392\u86cb\u9eb5 or \u96de\u6392\u86cb\u9eb5 "
                     "based on the visible meat. If noodles are visible, do not omit them from the candidate name. "
                     "Pay special attention to butadon (\u8c5a\u4e3c) vs oyakodon (\u89aa\u5b50\u4e3c). "
@@ -400,6 +403,9 @@ def _call_gemini_image_candidate_completion(text: str, image_bytes: bytes, media
         "Use Traditional Chinese meal names and concrete visual evidence. "
         "Do not return placeholders. Do not use generic names such as 餐點, 食物, 料理, 主餐, or 湯包 unless "
         "there is visible dumpling evidence such as 小籠包, 麵皮, 肉餡, 湯汁, 蒸籠, or folds. "
+        "Do not infer side dishes or staple foods that are not visible. "
+        "If noodles are not visible, do not output a noodle meal. "
+        "If only a fried chicken cutlet is visible, output 炸雞排. "
         "If user text mentions 花生, peanut, 西瓜, or watermelon, treat it as auxiliary context, not as an automatic override. "
         "If noodles, rice, egg, meat, seafood, vegetables, soup, breading, or wrappers are visible, mention them in evidence. "
         f"Context or filename: {text}"
@@ -444,6 +450,9 @@ def _retry_image_correction(
                     "All user-facing values must be Traditional Chinese. "
                     "Do not use placeholder ingredients such as \u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d, \u672a\u78ba\u8a8d, or unknown. "
                     "recommendationReason must cite concrete visible features from the image. "
+                    "Do not infer side dishes or staple foods that are not visible. "
+                    "If noodles are not visible, do not output a noodle meal; if only a fried chicken cutlet is visible, "
+                    "return mealName=\u70b8\u96de\u6392 with ingredients \u96de\u8089, \u9eb5\u8863, \u6cb9. "
                     "If the image evidence is insufficient, return mealName=\u7591\u4f3c\u9910\u9ede, "
                     "mealType=\u5f85\u78ba\u8a8d, tags=[\u5f85\u78ba\u8a8d], "
                     "mainIngredients=[\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d], confidence=0.35."
@@ -610,6 +619,8 @@ def _image_validation_errors(result: MealAnalysisResult, context: str) -> list[s
     issues = validate_analysis_result(result)
     if result.mealName in {SOUP_DUMPLING, XIAOLONGBAO} and not _has_soup_dumpling_evidence(context):
         issues.append("soup dumpling image result requires visible soup dumpling evidence")
+    if "\u9eb5" in result.mealName and not _has_noodle_evidence(context):
+        issues.append("noodle meal image result requires visible noodle evidence")
     return issues
 
 
@@ -625,6 +636,35 @@ def _has_soup_dumpling_evidence(context: str) -> bool:
             "\u647a\u76ba",
             "dumpling",
             "xiaolongbao",
+        ],
+    )
+
+
+def _has_noodle_evidence(context: str) -> bool:
+    raw = context.lower()
+    normalized = normalize_user_facing_text(context)
+    combined = f"{raw} {normalized.lower()}"
+    if _has_any(
+        combined,
+        [
+            "\u672a\u660e\u78ba\u770b\u5230\u9eb5\u689d",
+            "\u6c92\u6709\u9eb5\u689d",
+            "\u672a\u770b\u5230\u9eb5\u689d",
+            "\u4e0d\u5224\u65b7\u70ba\u96de\u6392\u9eb5",
+            "no noodles",
+            "no visible noodles",
+        ],
+    ):
+        return False
+    return _has_any(
+        combined,
+        [
+            "\u9eb5\u689d",
+            "\u9eb5\u98df",
+            "\u53ef\u898b\u9eb5",
+            "\u6e6f\u9eb5",
+            "noodle",
+            "noodles",
         ],
     )
 
@@ -819,7 +859,11 @@ def _has_known_image_hint(text: str) -> bool:
         "\u96de\u6392\u9eb5",
         "\u725b\u6392\u9eb5",
         "\u8c6c\u6392\u4e3c",
+        "\u70b8\u96de\u6392",
+        "\u96de\u6392",
         "chicken steak",
+        "fried chicken steak",
+        "fried chicken cutlet",
         "steak",
         "noodles",
     ]
@@ -867,6 +911,8 @@ def _clean_hint_name(value: str) -> str | None:
 
 def _hinted_image_result(text: str, confidence: float) -> MealAnalysisResult | None:
     normalized = normalize_meal_name(text).lower()
+    if _is_fried_chicken_cutlet_hint(normalized):
+        return _hint_result("\u70b8\u96de\u6392", "image", confidence=confidence)
     if _is_butadon_text(normalized):
         return _butadon_result("image", confidence=confidence)
     if OYAKODON in normalized or "oyakodon" in normalized:
@@ -930,6 +976,10 @@ def _is_watermelon_hint(text: str) -> bool:
 
 def _is_peanut_hint(text: str) -> bool:
     return _has_any(text, [PEANUT, "peanut", "peanuts"])
+
+
+def _is_fried_chicken_cutlet_hint(text: str) -> bool:
+    return _has_any(text, ["\u70b8\u96de\u6392", "\u96de\u6392", "chicken steak", "fried chicken steak", "fried chicken cutlet"])
 
 
 def _add_unique(values: list[str], value: str) -> list[str]:

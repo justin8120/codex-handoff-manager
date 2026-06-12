@@ -264,7 +264,7 @@ def test_enrichment_normalizes_chicken_steak_with_noodles():
         },
     )
 
-    assert result.mealName == "\u96de\u6392\u9eb5"
+    assert result.mealName == "\u70b8\u96de\u6392"
     assert result.estimatedCalories > 0
     assert result.estimatedProtein > 0
     assert result.mainIngredients
@@ -878,6 +878,113 @@ def test_analyze_image_english_meal_name_is_translated_and_enriched(monkeypatch)
     assert payload["estimatedProtein"] > 0
     assert payload["mainIngredients"]
     assert "\u9ea9\u8cea" in payload["allergens"]
+
+
+def test_analyze_image_chicken_steak_without_noodle_evidence_returns_fried_cutlet(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "\u5716\u7247\u4e2d\u53ef\u898b\u5927\u578b\u88f9\u7c89\u6cb9\u70b8\u96de\u6392",
+            "candidates": [
+                {
+                    "name": "Chicken steak",
+                    "confidence": 0.82,
+                    "evidence": ["fried chicken cutlet", "breading", "golden crust"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("fried-chicken.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u70b8\u96de\u6392"
+    assert payload["mealType"] == "\u70b8\u7269 / \u5c0f\u5403"
+    assert payload["estimatedCalories"] == 600
+    assert payload["estimatedProtein"] == 35
+    assert payload["mainIngredients"] == ["\u96de\u8089", "\u9eb5\u8863", "\u6cb9"]
+    assert "\u9eb5\u689d" not in payload["mainIngredients"]
+    assert "\u9ad8\u6e6f" not in payload["mainIngredients"]
+    assert "\u9752\u83dc" not in payload["mainIngredients"]
+    assert "\u4e0d\u5224\u65b7\u70ba\u96de\u6392\u9eb5" in payload["recommendationReason"]
+
+
+def test_analyze_image_chicken_steak_with_noodles_name_without_evidence_is_corrected(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "\u5716\u7247\u4e2d\u53ea\u770b\u5230\u88f9\u7c89\u6cb9\u70b8\u96de\u6392",
+            "candidates": [
+                {
+                    "name": "Chicken steak with noodles",
+                    "confidence": 0.84,
+                    "evidence": ["fried chicken cutlet", "breading", "crispy crust"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("fried-chicken.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u70b8\u96de\u6392"
+    assert "\u9eb5\u689d" not in payload["mainIngredients"]
+    assert "\u9ad8\u6e6f" not in payload["mainIngredients"]
+
+
+def test_analyze_image_keeps_chicken_steak_noodles_when_noodle_evidence_exists(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "fried chicken steak with visible noodles and soup",
+            "candidates": [
+                {
+                    "name": "Chicken steak with noodles",
+                    "confidence": 0.84,
+                    "evidence": ["fried chicken cutlet", "noodles", "soup"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        files={"file": ("chicken-noodles.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u96de\u6392\u9eb5"
+    assert "\u9eb5\u689d" in payload["mainIngredients"]
 
 
 def test_analyze_image_steak_and_eggs_uses_evidence_for_chinese_noodle_result(monkeypatch):
