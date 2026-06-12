@@ -44,6 +44,15 @@ const defaultGoal: HealthGoal = "均衡飲食"
 const customDietTagsKey = "smartDiet.customDietTags"
 const customAvoidIngredientsKey = "smartDiet.customAvoidIngredients"
 const maxCustomItems = 20
+const exclusionSynonyms: Record<string, string[]> = {
+  豬肉: ["豬肉", "豬肉片", "豚肉", "豚", "豬排", "炸豬排", "叉燒", "培根", "火腿", "香腸", "肉燥"],
+  牛肉: ["牛肉", "牛肉片", "牛排", "牛丼", "牛腩"],
+  雞肉: ["雞肉", "雞胸", "雞腿", "雞排", "炸雞", "雞塊"],
+  海鮮: ["海鮮", "蝦", "蝦仁", "魚", "花枝", "魷魚", "蟹", "貝類"],
+  花生: ["花生", "花生粉", "花生醬"],
+  乳製品: ["乳製品", "牛奶", "奶油", "起司", "乳酪", "鮮奶油"],
+  麩質: ["麩質", "小麥", "麵粉", "麵皮", "麵條", "麵衣", "麵包粉"],
+}
 
 function toggleValue<T>(values: T[], value: T) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
@@ -88,6 +97,33 @@ function validateCustomItem(value: string, existing: string[], label: string) {
   return { value: trimmed, error: "" }
 }
 
+function normalizeAvoidTerms(values: string[]) {
+  const terms = new Set<string>()
+  values.forEach((value) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    terms.add(trimmed)
+    Object.entries(exclusionSynonyms).forEach(([canonical, synonyms]) => {
+      if (trimmed === canonical || synonyms.includes(trimmed) || trimmed.includes(canonical)) {
+        synonyms.forEach((synonym) => terms.add(synonym))
+      }
+    })
+  })
+  return [...terms]
+}
+
+function mealMatchesExclusion(meal: Meal, excludedAllergens: string[]) {
+  const searchableText = [
+    meal.name,
+    meal.type,
+    meal.reason,
+    ...meal.tags,
+    ...meal.ingredients,
+    ...meal.allergens,
+  ].join(" ")
+  return normalizeAvoidTerms(excludedAllergens).some((term) => searchableText.includes(term))
+}
+
 function filterLocalMeals(
   mealDataset: Meal[],
   goal: HealthGoal,
@@ -99,11 +135,7 @@ function filterLocalMeals(
   return mealDataset.filter((meal) => {
     const matchesGoal = meal.goals.includes(goal)
     const matchesTags = selectedTags.every((tag) => meal.tags.includes(tag))
-    const avoidsAllergens = excludedAllergens.every(
-      (allergen) =>
-        !meal.allergens.includes(allergen) &&
-        !meal.ingredients.some((ingredient) => ingredient.includes(allergen)),
-    )
+    const avoidsAllergens = !mealMatchesExclusion(meal, excludedAllergens)
     const matchesKeyword =
       normalizedKeyword.length === 0 ||
       [meal.name, meal.type, meal.reason, ...meal.tags, ...meal.ingredients, ...meal.allergens]
@@ -688,7 +720,9 @@ export function App() {
           ) : null}
 
           {hasSearched && recommendedMeals.length === 0 ? (
-            <p className="empty-state">未找到符合條件的餐點，請調整搜尋條件</p>
+            <p className="empty-state">
+              目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。
+            </p>
           ) : null}
 
           <div className="meal-grid" aria-label="推薦清單">

@@ -8,6 +8,52 @@ from app.models import MealAnalysisResult
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 MEALS_FILE = DATA_DIR / "meals.json"
 
+EXCLUSION_SYNONYMS: dict[str, list[str]] = {
+    "\u8c6c\u8089": [
+        "\u8c6c\u8089",
+        "\u8c6c\u8089\u7247",
+        "\u8c5a\u8089",
+        "\u8c5a",
+        "\u8c6c\u6392",
+        "\u70b8\u8c6c\u6392",
+        "\u53c9\u71d2",
+        "\u57f9\u6839",
+        "\u706b\u817f",
+        "\u9999\u8178",
+        "\u8089\u71e5",
+    ],
+    "\u725b\u8089": ["\u725b\u8089", "\u725b\u8089\u7247", "\u725b\u6392", "\u725b\u4e3c", "\u725b\u8169"],
+    "\u96de\u8089": ["\u96de\u8089", "\u96de\u80f8", "\u96de\u817f", "\u96de\u6392", "\u70b8\u96de", "\u96de\u584a"],
+    "\u6d77\u9bae": [
+        "\u6d77\u9bae",
+        "\u8766",
+        "\u8766\u4ec1",
+        "\u9b5a",
+        "\u82b1\u679d",
+        "\u9b77\u9b5a",
+        "\u87f9",
+        "\u8c9d\u985e",
+    ],
+    "\u82b1\u751f": ["\u82b1\u751f", "\u82b1\u751f\u7c89", "\u82b1\u751f\u91ac"],
+    "\u4e73\u88fd\u54c1": [
+        "\u4e73\u88fd\u54c1",
+        "\u725b\u5976",
+        "\u5976\u6cb9",
+        "\u8d77\u53f8",
+        "\u4e73\u916a",
+        "\u9bae\u5976\u6cb9",
+    ],
+    "\u9ea9\u8cea": [
+        "\u9ea9\u8cea",
+        "\u5c0f\u9ea5",
+        "\u9eb5\u7c89",
+        "\u9eb5\u76ae",
+        "\u9eb5\u689d",
+        "\u9eb5\u8863",
+        "\u9eb5\u5305\u7c89",
+    ],
+}
+
 _lock = Lock()
 
 
@@ -45,50 +91,69 @@ def recommend_meals(
     keyword: str | None,
 ) -> list[MealAnalysisResult]:
     normalized_keyword = (keyword or "").strip().lower()
-    normalized_excluded = [item.lower() for item in excluded_ingredients]
 
     results: list[MealAnalysisResult] = []
     for meal in load_meals():
-        searchable_text = " ".join(
-            [
-                meal.mealName,
-                meal.mealType,
-                meal.recommendationReason,
-                *meal.tags,
-                *meal.mainIngredients,
-                *meal.allergens,
-            ],
-        ).lower()
+        searchable_text = _meal_search_text(meal)
+        if ingredient_matches_exclusion(searchable_text, excluded_ingredients):
+            continue
+
         matches_goal = _matches_health_goal(meal, health_goal)
         matches_tags = all(tag in meal.tags for tag in tags)
-        avoids_excluded = all(
-            excluded not in [allergen.lower() for allergen in meal.allergens]
-            and excluded not in [ingredient.lower() for ingredient in meal.mainIngredients]
-            for excluded in normalized_excluded
-        )
-        matches_keyword = not normalized_keyword or normalized_keyword in searchable_text
+        matches_keyword = not normalized_keyword or normalized_keyword in searchable_text.lower()
 
-        if matches_goal and matches_tags and avoids_excluded and matches_keyword:
+        if matches_goal and matches_tags and matches_keyword:
             results.append(meal)
 
     return results
+
+
+def normalize_avoid_ingredients(avoid_ingredients: list[str]) -> set[str]:
+    terms: set[str] = set()
+    for ingredient in avoid_ingredients:
+        normalized = ingredient.strip()
+        if not normalized:
+            continue
+        terms.add(normalized)
+        for canonical, synonyms in EXCLUSION_SYNONYMS.items():
+            if normalized == canonical or normalized in synonyms or canonical in normalized:
+                terms.update(synonyms)
+    return terms
+
+
+def ingredient_matches_exclusion(food_text: str, excluded: list[str]) -> bool:
+    normalized_food_text = food_text.lower()
+    return any(term.lower() in normalized_food_text for term in normalize_avoid_ingredients(excluded))
+
+
+def _meal_search_text(meal: MealAnalysisResult) -> str:
+    return " ".join(
+        [
+            meal.mealName,
+            meal.mealType,
+            meal.recommendationReason,
+            *meal.tags,
+            *meal.mainIngredients,
+            *meal.allergens,
+        ],
+    )
 
 
 def _matches_health_goal(meal: MealAnalysisResult, health_goal: str) -> bool:
     if not health_goal:
         return True
     profile = " ".join([meal.mealName, meal.mealType, *meal.tags])
-    is_risky = any(token in profile for token in ["甜點", "高糖", "炸物", "油炸", "高脂肪"])
-    if health_goal == "減脂":
+    is_risky = any(token in profile for token in ["\u751c\u9ede", "\u9ad8\u7cd6", "\u70b8\u7269", "\u6cb9\u70b8", "\u9ad8\u8102\u80aa"])
+    if health_goal == "\u6e1b\u8102":
         return not is_risky and (
-            meal.estimatedCalories <= 500 or "低卡" in meal.tags or "低脂" in meal.tags
+            meal.estimatedCalories <= 500 or "\u4f4e\u5361" in meal.tags or "\u4f4e\u8102" in meal.tags
         )
-    if health_goal == "增肌":
-        return meal.estimatedProtein >= 25 or "高蛋白" in meal.tags
-    if health_goal == "均衡飲食":
-        return not is_risky and ("健康餐" in meal.tags or meal.estimatedProtein >= 15)
-    if health_goal == "健康維持":
+    if health_goal == "\u589e\u808c":
+        return meal.estimatedProtein >= 25 or "\u9ad8\u86cb\u767d" in meal.tags
+    if health_goal == "\u5747\u8861\u98f2\u98df":
+        return not is_risky and ("\u5065\u5eb7\u9910" in meal.tags or meal.estimatedProtein >= 15)
+    if health_goal == "\u5065\u5eb7\u7dad\u6301":
         return not is_risky and (
-            "健康餐" in meal.tags or "低脂" in meal.tags or meal.estimatedCalories <= 550
+            "\u5065\u5eb7\u9910" in meal.tags or "\u4f4e\u8102" in meal.tags or meal.estimatedCalories <= 550
         )
     return True

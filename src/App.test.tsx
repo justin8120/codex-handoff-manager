@@ -151,6 +151,7 @@ function mockOnlineApi() {
     if (url.endsWith("/api/recommend")) {
       const body = JSON.parse(String(init?.body))
       if (body.keyword === "不存在的餐點") return jsonResponse([])
+      if (body.excludedIngredients?.includes("豬肉")) return jsonResponse([])
       if (body.excludedIngredients?.includes("海鮮")) return jsonResponse([backendMeals[0]])
       return jsonResponse([backendMeals[0]])
     }
@@ -369,6 +370,26 @@ describe("App", () => {
     expect(JSON.parse(String(recommendCall?.[1]?.body)).excludedIngredients).toContain("不吃辣")
   })
 
+  test("sends custom pork exclusion and shows empty result when backend filters all meals", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.type(screen.getByLabelText("自訂禁忌食材"), "豬肉")
+    await user.click(screen.getByRole("button", { name: "新增禁忌食材" }))
+    await user.click(screen.getByLabelText("豬肉"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    const recommendCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/recommend"),
+    )
+    expect(JSON.parse(String(recommendCall?.[1]?.body)).excludedIngredients).toContain("豬肉")
+    expect(
+      await screen.findByText("目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。"),
+    ).toBeInTheDocument()
+  })
+
   test("excludes seafood meals through mocked recommendation API", async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -389,7 +410,9 @@ describe("App", () => {
     await user.type(screen.getByRole("searchbox"), "不存在的餐點")
     await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
 
-    expect(await screen.findByText("未找到符合條件的餐點，請調整搜尋條件")).toBeInTheDocument()
+    expect(
+      await screen.findByText("目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。"),
+    ).toBeInTheDocument()
   })
 
   test("adds query history after searching", async () => {

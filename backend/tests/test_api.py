@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models import MealAnalysisResult
 from app.services.ai_provider import normalize_meal_name
 from app.services.nutrition_enricher import (
     calibrate_confidence,
@@ -11,9 +12,35 @@ from app.services.nutrition_enricher import (
 )
 from app.services.openai_meal_analyzer import classify_text_hint
 from app.services.web_food_verifier import rerank_food_candidates
+from app.storage import meals_store
 
 
 client = TestClient(app)
+
+
+def meal_fixture(
+    name: str,
+    tags: list[str] | None = None,
+    ingredients: list[str] | None = None,
+    allergens: list[str] | None = None,
+    reason: str = "\u6e2c\u8a66\u7528\u9910\u9ede\u3002",
+) -> MealAnalysisResult:
+    return MealAnalysisResult(
+        id=f"test-{name}",
+        mealName=name,
+        mealType="\u6e2c\u8a66\u9910",
+        estimatedCalories=500,
+        estimatedProtein=25,
+        tags=tags or ["\u5065\u5eb7\u9910"],
+        mainIngredients=ingredients or ["\u767d\u98ef", "\u852c\u83dc"],
+        allergens=allergens or [],
+        recommendationReason=reason,
+        confidence=0.7,
+        sourceType="text",
+        createdAt="2026-06-12T00:00:00+00:00",
+        isAiGenerated=False,
+        recommendedGoals=["\u5747\u8861\u98f2\u98df"],
+    )
 
 
 def test_normalize_meal_name_maps_romanized_names():
@@ -1354,3 +1381,72 @@ def test_recommend_accepts_unknown_custom_tags_and_avoid_ingredients():
 
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_recommend_excludes_pork_synonyms(monkeypatch):
+    monkeypatch.setattr(
+        meals_store,
+        "load_meals",
+        lambda: [
+            meal_fixture("\u8c5a\u4e3c", tags=["\u65e5\u5f0f", "\u4e3c\u98ef", "\u8c6c\u8089"], ingredients=["\u767d\u98ef", "\u8c6c\u8089\u7247"]),
+            meal_fixture("\u8c6c\u6392\u4e3c", ingredients=["\u767d\u98ef", "\u70b8\u8c6c\u6392"]),
+            meal_fixture("\u8336\u8449\u86cb", ingredients=["\u96de\u86cb", "\u8336\u8449"]),
+        ],
+    )
+
+    response = client.post(
+        "/api/recommend",
+        json={
+            "healthGoal": "\u5747\u8861\u98f2\u98df",
+            "tags": [],
+            "excludedIngredients": ["\u8c6c\u8089"],
+            "keyword": None,
+        },
+    )
+
+    assert response.status_code == 200
+    names = [meal["mealName"] for meal in response.json()]
+    assert "\u8c5a\u4e3c" not in names
+    assert "\u8c6c\u6392\u4e3c" not in names
+    assert "\u8336\u8449\u86cb" in names
+
+
+def test_recommend_excludes_beef_seafood_and_peanut_synonyms(monkeypatch):
+    monkeypatch.setattr(
+        meals_store,
+        "load_meals",
+        lambda: [
+            meal_fixture("\u725b\u4e3c", tags=["\u725b\u8089"], ingredients=["\u725b\u8089\u7247", "\u767d\u98ef"]),
+            meal_fixture("\u725b\u6392", ingredients=["\u725b\u6392"]),
+            meal_fixture("\u8766\u4ec1\u7092\u98ef", tags=["\u6d77\u9bae"], ingredients=["\u8766\u4ec1", "\u767d\u98ef"]),
+            meal_fixture("\u82b1\u751f\u91ac\u5410\u53f8", ingredients=["\u82b1\u751f\u91ac", "\u5410\u53f8"]),
+            meal_fixture("\u852c\u98df\u4fbf\u7576", ingredients=["\u8c46\u88fd\u54c1", "\u852c\u83dc"]),
+        ],
+    )
+
+    beef_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "\u5747\u8861\u98f2\u98df", "tags": [], "excludedIngredients": ["\u725b\u8089"], "keyword": None},
+    )
+    seafood_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "\u5747\u8861\u98f2\u98df", "tags": [], "excludedIngredients": ["\u6d77\u9bae"], "keyword": None},
+    )
+    peanut_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "\u5747\u8861\u98f2\u98df", "tags": [], "excludedIngredients": ["\u82b1\u751f"], "keyword": None},
+    )
+
+    beef_names = [meal["mealName"] for meal in beef_response.json()]
+    seafood_names = [meal["mealName"] for meal in seafood_response.json()]
+    peanut_names = [meal["mealName"] for meal in peanut_response.json()]
+    assert "\u725b\u4e3c" not in beef_names
+    assert "\u725b\u6392" not in beef_names
+    assert "\u8766\u4ec1\u7092\u98ef" not in seafood_names
+    assert "\u82b1\u751f\u91ac\u5410\u53f8" not in peanut_names
+
+
+def test_ingredient_matches_exclusion_checks_full_food_text():
+    food_text = "\u8c5a\u4e3c \u65e5\u5f0f \u4e3c\u98ef \u8c6c\u8089 \u767d\u98ef \u8c6c\u8089\u7247"
+
+    assert meals_store.ingredient_matches_exclusion(food_text, ["\u8c6c\u8089"])

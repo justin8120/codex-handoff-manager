@@ -349,7 +349,10 @@ async function main() {
         setTimeout(() => resolve(document.querySelector("#results .empty-state")?.textContent ?? ""), 100);
       })`,
     )
-    assert(emptyResult.includes("未找到符合條件的餐點"), "Empty recommendation state was not shown")
+    assert(
+      emptyResult.includes("目前沒有符合條件的餐點"),
+      "Empty recommendation state was not shown",
+    )
 
     const anchorResult = await evaluate(
       client,
