@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -78,6 +80,12 @@ URL_CONSERVATIVE_REASON = (
     "\u9810\u8a2d\u8cc7\u6599\u9032\u884c\u521d\u6b65\u4f30\u7b97\u3002"
     "\u5efa\u8b70\u88dc\u5145\u9910\u9ede\u540d\u7a31\u6216\u4e3b\u8981\u98df\u6750\u4ee5\u63d0\u9ad8\u6e96\u78ba\u5ea6\u3002"
 )
+CINNAMON_SWIRL_REASON = (
+    "\u7cfb\u7d71\u6839\u64da URL \u7522\u54c1\u540d\u7a31\u63a8\u6e2c\u70ba\u8089\u6842\u6372\uff0c"
+    "\u5c6c\u65bc\u751c\u9ede\u8207\u70d8\u7119\u9ede\u5fc3\uff0c\u7cd6\u5206\u8207\u78b3\u6c34\u5316\u5408\u7269\u8f03\u9ad8\uff0c"
+    "\u5efa\u8b70\u5076\u723e\u4eab\u7528\u3002"
+)
+RECOMMENDATION_CATEGORIES_PATH = Path(__file__).resolve().parents[2] / "data" / "recommendation_categories.json"
 
 KNOWN_MEALS: dict[str, dict[str, Any]] = {
     "\u5c0f\u7c60\u5305": {
@@ -106,6 +114,15 @@ KNOWN_MEALS: dict[str, dict[str, Any]] = {
         "mainIngredients": ["\u82b1\u751f"],
         "allergens": ["\u82b1\u751f"],
         "recommendationReason": PEANUT_REASON,
+    },
+    "\u8089\u6842\u6372": {
+        "estimatedCalories": 320,
+        "estimatedProtein": 6,
+        "mealType": "\u751c\u9ede / \u70d8\u7119\u9ede\u5fc3",
+        "tags": ["\u751c\u9ede", "\u70d8\u7119", "\u9ad8\u7cd6", "\u9ad8\u78b3\u6c34"],
+        "mainIngredients": ["\u9eb5\u7c89", "\u7cd6", "\u8089\u6842", "\u5976\u6cb9"],
+        "allergens": ["\u9ea9\u8cea", "\u5976\u985e"],
+        "recommendationReason": CINNAMON_SWIRL_REASON,
     },
     "\u725b\u6392\u86cb\u9eb5": {
         "estimatedCalories": 850,
@@ -348,6 +365,7 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         sourceType=source_type,
         createdAt=str(payload.get("createdAt") or datetime.now(timezone.utc).isoformat()),
         isAiGenerated=bool(payload.get("isAiGenerated", True)),
+        recommendedGoals=infer_recommendation_labels(meal_name, meal_type, tags, calories, protein),
     )
     if validate_analysis_result(enriched):
         fixed = enriched.model_dump()
@@ -363,6 +381,13 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
             fixed["estimatedProtein"] = 20
         if _is_forbidden_reason(fixed["recommendationReason"]) or not fixed["recommendationReason"]:
             fixed["recommendationReason"] = DEFAULT_REASON
+        fixed["recommendedGoals"] = infer_recommendation_labels(
+            str(fixed.get("mealName") or ""),
+            str(fixed.get("mealType") or ""),
+            _string_list(fixed.get("tags")),
+            float(fixed.get("estimatedCalories") or 0),
+            float(fixed.get("estimatedProtein") or 0),
+        )
         fixed["confidence"] = calibrate_confidence(
             fixed,
             source_type=str(fixed.get("sourceType") or source_type),
@@ -372,6 +397,61 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         )
         enriched = MealAnalysisResult(**fixed)
     return enriched
+
+
+def load_recommendation_categories() -> list[dict[str, Any]]:
+    try:
+        with RECOMMENDATION_CATEGORIES_PATH.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return payload if isinstance(payload, list) else []
+
+
+def infer_recommendation_labels(
+    meal_name: str,
+    meal_type: str,
+    tags: list[str],
+    calories: float,
+    protein: float,
+) -> list[str]:
+    categories = load_recommendation_categories()
+    profile_tokens = set(tags)
+    profile = f"{meal_name} {meal_type} {' '.join(tags)}"
+    if protein >= 25:
+        profile_tokens.add("\u9ad8\u86cb\u767d")
+    is_high_calorie = calories >= 700
+    is_low_calorie = calories <= 450 or "\u4f4e\u5361" in profile_tokens
+    is_risky = _has_any(profile, ["\u751c\u9ede", "\u9ad8\u7cd6", "\u70d8\u7119", "\u70b8\u7269", "\u6cb9\u70b8", "\u9ad8\u8102\u80aa"])
+
+    labels: list[str] = []
+    for category in categories:
+        label = str(category.get("label") or "")
+        include_rules = [str(item) for item in category.get("includeRules", [])]
+        exclude_rules = [str(item) for item in category.get("excludeRules", [])]
+        has_include = not include_rules or any(rule in profile_tokens or rule in profile for rule in include_rules)
+        has_excluded = any(rule in profile_tokens or rule in profile for rule in exclude_rules)
+        if not label or not has_include or has_excluded:
+            continue
+        if label == "\u6e1b\u8102" and (is_high_calorie and "\u4f4e\u5361" not in profile_tokens):
+            continue
+        labels.append(label)
+
+    if is_low_calorie and not is_risky:
+        labels = _label_add(labels, "\u6e1b\u8102")
+        labels = _label_add(labels, "\u5065\u5eb7\u7dad\u6301")
+    if protein >= 25:
+        labels = _label_add(labels, "\u589e\u808c")
+        labels = _label_add(labels, "\u9ad8\u86cb\u767d\u88dc\u5145")
+    if is_risky:
+        labels = [label for label in labels if label not in {"\u6e1b\u8102", "\u5747\u8861\u98f2\u98df", "\u5065\u5eb7\u7dad\u6301"}]
+    elif protein >= 15:
+        labels = _label_add(labels, "\u5747\u8861\u98f2\u98df")
+    return labels
+
+
+def _label_add(labels: list[str], label: str) -> list[str]:
+    return labels if label in labels else [*labels, label]
 
 
 def calibrate_confidence(
@@ -398,7 +478,7 @@ def calibrate_confidence(
         confidence = min(confidence, 0.55)
     if source == "url":
         if "URL fetch failed" in evidence or "URL fetch failed" in reason:
-            confidence = min(confidence, 0.4)
+            confidence = min(confidence, 0.35)
         elif _has_incomplete_ingredients(ingredients):
             confidence = min(confidence, 0.45)
         elif len(ingredients) < 2:

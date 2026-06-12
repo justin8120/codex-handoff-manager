@@ -20,6 +20,7 @@ class MealAnalysisResult(BaseModel):
     sourceType: SourceType
     createdAt: str
     isAiGenerated: bool
+    recommendedGoals: list[str] = Field(default_factory=list)
 
 
 class TextAnalyzeRequest(BaseModel):

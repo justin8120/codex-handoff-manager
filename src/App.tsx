@@ -217,7 +217,7 @@ export function App() {
       const savedMeal = isOfflineMode ? analysisResult : await addMeal(analysisResult)
       setMealDataset((current) => [savedMeal, ...current])
       setRecommendedMeals((current) => [savedMeal, ...current])
-      setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，可用於後續推薦。`)
+      setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，可用於推薦。`)
       setAnalysisError("")
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "加入餐點資料集失敗，請稍後再試。")
@@ -303,8 +303,8 @@ export function App() {
           <div className="eyebrow">Smart Diet Recommendation System</div>
           <h1>智慧飲食建議系統</h1>
           <p>
-            使用 React 前端與 FastAPI 後端串接 AI provider，依照使用者飲食偏好、健康目標、
-            過敏原與餐點描述，分析餐點並推薦適合的飲食選項。
+            本系統定位為日常飲食建議與輔助決策工具，可依照使用者輸入的文字、圖片或連結進行餐點分析，
+            並根據健康目標、飲食標籤與禁忌食材提供餐點推薦。
           </p>
           <div className="hero-actions">
             <a className="primary-action" href="#ai-analysis">
@@ -314,10 +314,10 @@ export function App() {
           </div>
         </section>
 
-        <section className="metrics" aria-label="餐點資料概覽">
+        <section className="metrics" aria-label="餐點資料摘要">
           <div>
             <span>{mealDataset.length}</span>
-            <p>筆餐點資料</p>
+            <p>資料集餐點</p>
           </div>
           <div>
             <span>{dietTags.length}</span>
@@ -325,12 +325,12 @@ export function App() {
           </div>
           <div>
             <span>{allergens.length}</span>
-            <p>可排除禁忌</p>
+            <p>禁忌條件</p>
           </div>
         </section>
 
         {backendError ? (
-          <p className="status-message">{backendError} 目前使用離線展示模式。</p>
+          <p className="status-message">{backendError} 目前使用離線展示資料。</p>
         ) : null}
 
         <section className="section" id="ai-analysis">
@@ -409,7 +409,7 @@ export function App() {
               <div className="eyebrow">Recommendation</div>
               <h2>餐點推薦</h2>
             </div>
-            <p>選擇健康目標、飲食標籤、禁忌食材或搜尋關鍵字，系統會推薦符合條件的餐點。</p>
+            <p>選擇健康目標、飲食標籤與禁忌食材後，系統會推薦較符合條件的餐點。</p>
           </div>
 
           <div className="recommendation-panel">
@@ -496,7 +496,7 @@ export function App() {
           </div>
 
           {!hasSearched ? (
-            <p className="empty-state">請選擇條件後開始推薦，目前先顯示餐點資料。</p>
+            <p className="empty-state">請選擇條件後開始推薦，或先查看下方餐點資料集。</p>
           ) : null}
 
           {hasSearched && recommendedMeals.length === 0 ? (
@@ -516,7 +516,7 @@ export function App() {
               <div className="eyebrow">Dataset</div>
               <h2>餐點資料集</h2>
             </div>
-            <p>完整列出系統目前可用於推薦的餐點資料，包含 AI 分析後新增的餐點。</p>
+            <p>預設資料集與 AI 分析新增的餐點會顯示於此，並可作為推薦依據。</p>
           </div>
 
           <div className="meal-data-grid" aria-label="餐點資料集清單">
@@ -532,11 +532,11 @@ export function App() {
               <div className="eyebrow">History</div>
               <h2>查詢紀錄</h2>
             </div>
-            <p>記錄最近查詢條件與結果數量，方便調整搜尋策略。</p>
+            <p>記錄最近幾次搜尋條件與結果數量，方便比較調整。</p>
           </div>
 
           {history.length === 0 ? (
-            <p className="empty-state">目前尚無查詢紀錄，請先按下搜尋 / 推薦。</p>
+            <p className="empty-state">尚未建立查詢紀錄，請先執行搜尋 / 推薦。</p>
           ) : (
             <div className="history-list" aria-label="最近查詢紀錄">
               {history.map((record, index) => (

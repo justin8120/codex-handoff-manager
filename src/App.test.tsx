@@ -2,9 +2,9 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { App } from "./App"
-import { inferGoals, type BackendMeal } from "./api"
+import { backendMealToMeal, inferGoals, type BackendMeal } from "./api"
 
-const backendMeals = [
+const backendMeals: BackendMeal[] = [
   {
     id: "seed-tea-egg",
     mealName: "茶葉蛋",
@@ -14,11 +14,12 @@ const backendMeals = [
     tags: ["低卡", "高蛋白", "低脂"],
     mainIngredients: ["雞蛋", "茶葉"],
     allergens: ["蛋"],
-    recommendationReason: "茶葉蛋熱量低且方便取得，可作為補充蛋白質的小點心。",
+    recommendationReason: "茶葉蛋熱量低且含蛋白質，適合作為份量較小的蛋白質補充。",
     confidence: 1,
     sourceType: "text",
     createdAt: "2026-06-03T00:00:00+00:00",
     isAiGenerated: false,
+    recommendedGoals: ["減脂", "健康維持"],
   },
   {
     id: "seed-salmon-salad",
@@ -29,11 +30,12 @@ const backendMeals = [
     tags: ["低卡", "高蛋白", "健康餐"],
     mainIngredients: ["鮭魚", "生菜"],
     allergens: ["海鮮"],
-    recommendationReason: "鮭魚富含蛋白質與 Omega-3，搭配大量蔬菜可提升飽足感。",
+    recommendationReason: "鮭魚提供蛋白質與脂肪酸，搭配蔬菜可作為清爽主餐。",
     confidence: 1,
     sourceType: "text",
     createdAt: "2026-06-03T00:00:00+00:00",
     isAiGenerated: false,
+    recommendedGoals: ["減脂", "健康維持"],
   },
   {
     id: "seed-seafood-congee",
@@ -42,30 +44,49 @@ const backendMeals = [
     estimatedCalories: 420,
     estimatedProtein: 25,
     tags: ["低脂", "健康餐"],
-    mainIngredients: ["白飯", "蝦仁", "魚片"],
+    mainIngredients: ["白飯", "蝦仁", "蛤蜊"],
     allergens: ["海鮮"],
-    recommendationReason: "粥品口感清淡，海鮮提供蛋白質，但海鮮過敏者需避免。",
+    recommendationReason: "粥品口感溫和並含海鮮蛋白質，但海鮮禁忌者需避免。",
     confidence: 1,
     sourceType: "text",
     createdAt: "2026-06-03T00:00:00+00:00",
     isAiGenerated: false,
+    recommendedGoals: ["均衡飲食", "健康維持"],
   },
 ]
 
-const analysisMeal = {
+const analysisMeal: BackendMeal = {
   id: "ai-tea-egg",
   mealName: "茶葉蛋",
   mealType: "蛋白點心",
   estimatedCalories: 80,
   estimatedProtein: 7,
   tags: ["低卡", "高蛋白", "低脂"],
-  mainIngredients: ["雞蛋", "茶葉", "香料"],
+  mainIngredients: ["雞蛋", "茶葉", "醬油"],
   allergens: ["蛋"],
-  recommendationReason: "系統分析此餐點為茶葉蛋，熱量低且含有蛋白質。",
+  recommendationReason: "系統辨識此餐點為茶葉蛋，熱量較低並可補充蛋白質。",
   confidence: 0.91,
   sourceType: "text",
   createdAt: "2026-06-03T00:00:00+00:00",
   isAiGenerated: true,
+  recommendedGoals: ["減脂", "健康維持"],
+}
+
+const cinnamonRollMeal: BackendMeal = {
+  id: "url-cinnamon",
+  mealName: "肉桂捲",
+  mealType: "甜點 / 烘焙點心",
+  estimatedCalories: 320,
+  estimatedProtein: 6,
+  tags: ["甜點", "烘焙", "高糖", "高碳水"],
+  mainIngredients: ["麵粉", "糖", "肉桂", "奶油"],
+  allergens: ["麩質", "奶類"],
+  recommendationReason: "系統根據 URL 產品名稱推測為肉桂捲，屬甜點，建議偶爾享用。",
+  confidence: 0.55,
+  sourceType: "url",
+  createdAt: "2026-06-12T00:00:00+00:00",
+  isAiGenerated: true,
+  recommendedGoals: ["偶爾享用", "甜點", "高糖提醒"],
 }
 
 const friedChickenCutletMeal: BackendMeal = {
@@ -78,7 +99,7 @@ const friedChickenCutletMeal: BackendMeal = {
   mainIngredients: ["雞肉", "麵衣", "油"],
   allergens: ["麩質"],
   recommendationReason:
-    "系統根據圖片中可見的大型裹粉油炸雞排判斷此餐點為炸雞排。此餐點蛋白質含量較高，但油炸料理熱量與油脂也較高，建議控制份量。",
+    "系統根據圖片中可見的大型裹粉油炸雞排判斷此餐點為炸雞排，油炸料理熱量與油脂也較高。",
   confidence: 0.85,
   sourceType: "image",
   createdAt: "2026-06-12T00:00:00+00:00",
@@ -94,7 +115,7 @@ const leanChickenMeal: BackendMeal = {
   tags: ["低卡", "高蛋白", "低脂", "健康餐"],
   mainIngredients: ["雞胸肉", "蔬菜", "糙米"],
   allergens: [],
-  recommendationReason: "雞胸肉提供高蛋白與低脂肪，適合減脂與日常健康維持。",
+  recommendationReason: "雞胸肉搭配蔬菜與糙米，適合日常均衡飲食。",
   confidence: 0.8,
   sourceType: "text",
   createdAt: "2026-06-12T00:00:00+00:00",
@@ -126,11 +147,10 @@ function mockOnlineApi() {
     if (url.endsWith("/api/analyze/text")) return jsonResponse(analysisMeal)
     if (url.endsWith("/api/analyze/image"))
       return jsonResponse({ ...analysisMeal, sourceType: "image" })
-    if (url.endsWith("/api/analyze/url"))
-      return jsonResponse({ ...analysisMeal, sourceType: "url" })
+    if (url.endsWith("/api/analyze/url")) return jsonResponse(cinnamonRollMeal)
     if (url.endsWith("/api/recommend")) {
       const body = JSON.parse(String(init?.body))
-      if (body.keyword === "不存在餐點") return jsonResponse([])
+      if (body.keyword === "不存在的餐點") return jsonResponse([])
       if (body.excludedIngredients?.includes("海鮮")) return jsonResponse([backendMeals[0]])
       return jsonResponse([backendMeals[0]])
     }
@@ -174,7 +194,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "加入餐點資料集" }))
     await waitFor(() =>
-      expect(screen.getByText("茶葉蛋 已加入餐點資料集，可用於後續推薦。")).toBeInTheDocument(),
+      expect(screen.getByText("茶葉蛋 已加入餐點資料集，可用於推薦。")).toBeInTheDocument(),
     )
   })
 
@@ -236,14 +256,16 @@ describe("App", () => {
     expect((imageCall?.[1]?.body as FormData).get("description")).toBe("小籠包")
   })
 
-  test("analyzes with only URL input", async () => {
+  test("analyzes with only URL input and displays backend recommendation categories", async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(screen.getByLabelText("連結輸入"), "https://example.com/menu")
+    await user.type(screen.getByLabelText("連結輸入"), "https://example.com/cinnamon-swirl.html")
     await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
 
-    expect(await screen.findByLabelText("AI 分析結果")).toBeInTheDocument()
+    const analysis = await screen.findByLabelText("AI 分析結果")
+    expect(within(analysis).getByText("肉桂捲")).toBeInTheDocument()
+    expect(within(analysis).getByText("偶爾享用 / 甜點 / 高糖提醒")).toBeInTheDocument()
   })
 
   test("uses URL analysis without sending stale image text hint when URL is provided", async () => {
@@ -274,10 +296,8 @@ describe("App", () => {
     )
     render(<App />)
 
-    expect(
-      await screen.findByText(/AI 後端尚未啟動，請先啟動 FastAPI server。/),
-    ).toBeInTheDocument()
-    expect(screen.getByText(/目前使用離線展示模式/)).toBeInTheDocument()
+    expect(await screen.findByText(/AI 後端尚未啟動/)).toBeInTheDocument()
+    expect(screen.getByText(/目前使用離線展示資料/)).toBeInTheDocument()
   })
 
   test("excludes seafood meals through mocked recommendation API", async () => {
@@ -297,7 +317,7 @@ describe("App", () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.type(screen.getByRole("searchbox"), "不存在餐點")
+    await user.type(screen.getByRole("searchbox"), "不存在的餐點")
     await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
 
     expect(await screen.findByText("未找到符合條件的餐點，請調整搜尋條件")).toBeInTheDocument()
@@ -316,12 +336,19 @@ describe("App", () => {
     expect(within(history).getByText(/結果數量：/)).toBeInTheDocument()
   })
 
+  test("uses backend recommendation goals when provided", () => {
+    const meal = backendMealToMeal(cinnamonRollMeal)
+
+    expect(meal.goals).toEqual(["偶爾享用", "甜點", "高糖提醒"])
+  })
+
   test("infers conservative goals for fried chicken cutlet", () => {
     const goals = inferGoals(friedChickenCutletMeal)
 
     expect(goals).toContain("增肌")
     expect(goals).toContain("高蛋白補充")
     expect(goals).toContain("偶爾享用")
+    expect(goals).toContain("油炸提醒")
     expect(goals).not.toContain("健康維持")
     expect(goals).not.toContain("均衡飲食")
     expect(goals).not.toContain("減脂")

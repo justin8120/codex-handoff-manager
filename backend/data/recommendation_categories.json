@@ -1,0 +1,56 @@
+[
+  {
+    "id": "fat_loss",
+    "label": "減脂",
+    "type": "goal",
+    "excludeRules": ["高糖", "炸物", "高脂肪"]
+  },
+  {
+    "id": "muscle_gain",
+    "label": "增肌",
+    "type": "goal",
+    "includeRules": ["高蛋白"]
+  },
+  {
+    "id": "high_protein",
+    "label": "高蛋白補充",
+    "type": "goal",
+    "includeRules": ["高蛋白"]
+  },
+  {
+    "id": "balanced",
+    "label": "均衡飲食",
+    "type": "goal",
+    "excludeRules": ["高糖", "炸物", "高脂肪"]
+  },
+  {
+    "id": "healthy_maintenance",
+    "label": "健康維持",
+    "type": "goal",
+    "excludeRules": ["高糖", "炸物", "高脂肪"]
+  },
+  {
+    "id": "occasional_treat",
+    "label": "偶爾享用",
+    "type": "caution",
+    "includeRules": ["甜點", "炸物", "高糖", "高脂肪"]
+  },
+  {
+    "id": "dessert",
+    "label": "甜點",
+    "type": "category",
+    "includeRules": ["甜點", "烘焙"]
+  },
+  {
+    "id": "high_sugar_warning",
+    "label": "高糖提醒",
+    "type": "warning",
+    "includeRules": ["高糖", "甜點"]
+  },
+  {
+    "id": "fried_food_warning",
+    "label": "油炸提醒",
+    "type": "warning",
+    "includeRules": ["炸物", "油炸", "高脂肪"]
+  }
+]

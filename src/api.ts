@@ -24,6 +24,9 @@ export type BackendMeal = {
   sourceType: "text" | "image" | "url"
   createdAt: string
   isAiGenerated: boolean
+  recommendedGoals?: string[]
+  suitableGoals?: string[]
+  goals?: string[]
 }
 
 export type RecommendPayload = {
@@ -41,7 +44,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
-    const message = payload?.detail ?? "AI 後端請求失敗，請確認 FastAPI server 是否正常啟動。"
+    const message = payload?.detail ?? "AI 後端尚未啟動，請先啟動 FastAPI server。"
     throw new Error(message)
   }
 
@@ -56,7 +59,7 @@ export function backendMealToMeal(meal: BackendMeal): Meal {
     calories: meal.estimatedCalories,
     protein: meal.estimatedProtein,
     tags: meal.tags as DietTag[],
-    goals: inferGoals(meal),
+    goals: backendGoals(meal),
     ingredients: meal.mainIngredients,
     allergens: meal.allergens as Allergen[],
     reason: meal.recommendationReason,
@@ -82,6 +85,7 @@ export function mealToBackendMeal(meal: Meal): BackendMeal {
     sourceType: sourceTypeValue(meal.sourceType),
     createdAt: meal.createdAt ?? new Date().toISOString(),
     isAiGenerated: meal.isAiGenerated ?? true,
+    recommendedGoals: meal.goals,
   }
 }
 
@@ -144,33 +148,49 @@ export function inferGoals(meal: BackendMeal): MealGoal[] {
   const goals = new Set<MealGoal>()
   const tags = meal.tags.join(" ")
   const profile = `${meal.mealName} ${meal.mealType} ${tags} ${meal.recommendationReason}`
-  const isFriedOrHighFat = /炸物|油炸|高脂肪|高熱量/.test(profile)
+  const isFriedOrHighFat = /炸物|油炸|高脂肪/.test(profile)
+  const isSweetOrHighSugar = /甜點|高糖|烘焙/.test(profile)
+  const isRisky = isFriedOrHighFat || isSweetOrHighSugar
   const isHighCalorie = meal.estimatedCalories >= 700
   const isExplicitLowCalorie = meal.tags.includes("低卡")
   const isHealthyLeanMeal =
-    !isFriedOrHighFat &&
-    (/雞胸肉健康餐|水煮餐|沙拉|蔬菜/.test(profile) ||
+    !isRisky &&
+    (/雞胸肉|水煮|沙拉|蔬菜|健康餐/.test(profile) ||
       meal.tags.includes("健康餐") ||
       meal.tags.includes("低脂"))
 
-  if (
-    (meal.estimatedCalories <= 450 || isExplicitLowCalorie || isHealthyLeanMeal) &&
-    !isFriedOrHighFat &&
-    (!isHighCalorie || isExplicitLowCalorie)
-  ) {
-    goals.add("減脂")
+  if (isSweetOrHighSugar) {
+    goals.add("偶爾享用")
+    goals.add("甜點")
+    goals.add("高糖提醒")
+    return [...goals]
   }
+
   if (meal.estimatedProtein >= 25 || meal.tags.includes("高蛋白")) {
     goals.add("增肌")
     goals.add("高蛋白補充")
   }
+
   if (isFriedOrHighFat) {
     goals.add("偶爾享用")
+    goals.add("油炸提醒")
     return [...goals]
   }
+
+  if (
+    (meal.estimatedCalories <= 450 || isExplicitLowCalorie || isHealthyLeanMeal) &&
+    (!isHighCalorie || isExplicitLowCalorie)
+  ) {
+    goals.add("減脂")
+    goals.add("健康維持")
+  }
   if (isHealthyLeanMeal || meal.estimatedProtein >= 15) goals.add("均衡飲食")
-  if (meal.estimatedCalories <= 450 || isHealthyLeanMeal) goals.add("健康維持")
   return [...goals]
+}
+
+function backendGoals(meal: BackendMeal): MealGoal[] {
+  const labels = meal.recommendedGoals ?? meal.suitableGoals ?? meal.goals
+  return labels && labels.length > 0 ? (labels as MealGoal[]) : inferGoals(meal)
 }
 
 function sourceTypeLabel(sourceType?: MealSourceType | BackendMeal["sourceType"]): MealSourceType {

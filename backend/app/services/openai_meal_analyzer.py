@@ -3,6 +3,7 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Any, Literal
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
@@ -124,6 +125,45 @@ UNCERTAIN_IMAGE_REASON = (
     "\u5efa\u8b70\u88dc\u5145\u6587\u5b57\u63cf\u8ff0\uff0c\u4f8b\u5982\u9910\u9ede\u540d\u7a31\u6216\u4e3b\u8981\u98df\u6750\uff0c"
     "\u4ee5\u63d0\u9ad8\u5206\u6790\u6e96\u78ba\u5ea6\u3002"
 )
+URL_UNCERTAIN_REASON = (
+    "\u7cfb\u7d71\u5df2\u63a5\u6536\u9910\u9ede\u9023\u7d50\uff0c"
+    "\u4f46\u7121\u6cd5\u5b8c\u6574\u89e3\u6790\u8a72\u9801\u9762\u7684\u83dc\u55ae\u5167\u5bb9\uff0c"
+    "\u4e14 URL \u8def\u5f91\u4e2d\u6c92\u6709\u8db3\u5920\u660e\u78ba\u7684\u9910\u9ede\u540d\u7a31\u53ef\u4f9b\u63a8\u6e2c\u3002"
+    "\u5efa\u8b70\u88dc\u5145\u9910\u9ede\u540d\u7a31\u6216\u4e3b\u8981\u98df\u6750\u4ee5\u63d0\u9ad8\u6e96\u78ba\u5ea6\u3002"
+)
+URL_SLUG_MEALS: dict[str, dict[str, Any]] = {
+    "cinnamon-swirl": {
+        "mealName": "\u8089\u6842\u6372",
+        "confidence": 0.55,
+    },
+    "double-oreo-mcflurry": {
+        "mealName": "OREO \u51b0\u70ab\u98a8",
+        "mealType": "\u751c\u9ede / \u51b0\u54c1",
+        "estimatedCalories": 520,
+        "estimatedProtein": 10,
+        "tags": ["\u751c\u9ede", "\u9ad8\u7cd6", "\u4e73\u88fd\u54c1"],
+        "mainIngredients": ["\u51b0\u6dc7\u6dcb", "OREO \u9905\u4e7e", "\u7cd6"],
+        "allergens": ["\u5976\u985e", "\u9ea9\u8cea"],
+        "recommendationReason": "\u7cfb\u7d71\u6839\u64da URL \u7522\u54c1\u540d\u7a31\u63a8\u6e2c\u70ba OREO \u51b0\u70ab\u98a8\uff0c\u5c6c\u751c\u9ede\u8207\u51b0\u54c1\uff0c\u7cd6\u5206\u8f03\u9ad8\uff0c\u5efa\u8b70\u5076\u723e\u4eab\u7528\u3002",
+        "confidence": 0.55,
+    },
+    "select-brew-americano": {
+        "mealName": "\u7f8e\u5f0f\u5496\u5561",
+        "mealType": "\u98f2\u54c1",
+        "estimatedCalories": 10,
+        "estimatedProtein": 0,
+        "tags": ["\u98f2\u54c1", "\u4f4e\u71b1\u91cf"],
+        "mainIngredients": ["\u5496\u5561", "\u6c34"],
+        "allergens": [],
+        "recommendationReason": "\u7cfb\u7d71\u6839\u64da URL \u7522\u54c1\u540d\u7a31\u63a8\u6e2c\u70ba\u7f8e\u5f0f\u5496\u5561\uff0c\u71b1\u91cf\u8f03\u4f4e\uff0c\u4f46\u9700\u7559\u610f\u5496\u5561\u56e0\u651d\u53d6\u3002",
+        "confidence": 0.6,
+    },
+    "chicken-mcnuggets-6-pieces": {"mealName": "\u9ea5\u514b\u96de\u584a", "confidence": 0.6},
+    "chicken-mcnuggets-10-pieces": {"mealName": "\u9ea5\u514b\u96de\u584a", "confidence": 0.6},
+    "mcchicken": {"mealName": "\u9ea5\u9999\u96de", "confidence": 0.6},
+    "big-mac": {"mealName": "\u5927\u9ea5\u514b", "confidence": 0.6},
+    "french-fries": {"mealName": "\u85af\u689d", "confidence": 0.6},
+}
 
 
 def is_configured() -> bool:
@@ -162,11 +202,14 @@ async def analyze_image(file: UploadFile, hint: str = "") -> MealAnalysisResult:
 
 
 async def analyze_url(url: str) -> MealAnalysisResult:
+    slug_result = _url_slug_result(url)
+    if slug_result:
+        return slug_result
     try:
         summary = await fetch_url_summary(url)
     except httpx.HTTPError as error:
         if fallback_enabled():
-            return _fallback_result(f"URL fetch failed: {url}", "url", confidence=0.4)
+            return _uncertain_url_result(url, confidence=0.35)
         raise HTTPException(status_code=502, detail=f"URL fetch failed: {error}") from error
     result = _safe_analyze("url", text=f"URL: {url}\nExtracted content:\n{summary}")
     if result.sourceType != "url":
@@ -184,9 +227,13 @@ def _safe_analyze(
 ) -> MealAnalysisResult:
     provider = get_ai_provider()
     if provider.name == "mock":
+        if source_type == "url":
+            return _uncertain_url_result(text, confidence=0.35)
         return _fallback_result(text, source_type, text_hint=text_hint)
     if not provider.configured:
         if fallback_enabled():
+            if source_type == "url":
+                return _uncertain_url_result(text, confidence=0.35)
             return _fallback_result(text, source_type, confidence=0.4, text_hint=text_hint)
         raise HTTPException(status_code=503, detail=CONFIGURATION_ERROR)
 
@@ -205,6 +252,8 @@ def _safe_analyze(
     ) as error:
         print(f"AI provider error ({provider.name}): {error}")
         if fallback_enabled():
+            if source_type == "url":
+                return _uncertain_url_result(text, confidence=0.35)
             return _fallback_result(text, source_type, confidence=0.45, text_hint=text_hint)
         raise HTTPException(status_code=502, detail=f"AI provider error: {error}") from error
 
@@ -522,6 +571,59 @@ def _normalize_payload(payload: dict[str, Any], source_type: str, provider_name:
     payload["createdAt"] = str(payload.get("createdAt") or datetime.now(timezone.utc).isoformat())
     payload["isAiGenerated"] = True
     return normalize_and_enrich_result(payload, original_text=str(payload.get("mealName") or ""))
+
+
+def _url_slug_result(url: str) -> MealAnalysisResult | None:
+    slug = _matched_url_slug(url)
+    if not slug:
+        return None
+    config = URL_SLUG_MEALS[slug]
+    payload = {
+        "id": f"url-{uuid4()}",
+        "mealName": str(config.get("mealName") or ""),
+        "mealType": str(config.get("mealType") or ""),
+        "estimatedCalories": float(config.get("estimatedCalories") or 0),
+        "estimatedProtein": float(config.get("estimatedProtein") or 0),
+        "tags": _string_list(config.get("tags")),
+        "mainIngredients": _string_list(config.get("mainIngredients")),
+        "allergens": _string_list(config.get("allergens")),
+        "recommendationReason": str(config.get("recommendationReason") or ""),
+        "confidence": max(0, min(float(config.get("confidence") or 0.55), 0.75)),
+        "sourceType": "url",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "isAiGenerated": True,
+    }
+    return normalize_and_enrich_result(payload, original_text=str(config.get("mealName") or url))
+
+
+def _matched_url_slug(url: str) -> str | None:
+    path = urlparse(url).path.lower()
+    segments = [segment.removesuffix(".html").removesuffix(".htm") for segment in path.split("/") if segment]
+    for slug in URL_SLUG_MEALS:
+        if slug in segments or slug in path:
+            return slug
+    return None
+
+
+def _uncertain_url_result(url: str, confidence: float = 0.35) -> MealAnalysisResult:
+    return normalize_and_enrich_result(
+        {
+            "id": f"url-{uuid4()}",
+            "mealName": "\u5f85\u88dc\u5145\u9910\u9ede",
+            "mealType": "\u5f85\u78ba\u8a8d",
+            "estimatedCalories": 500,
+            "estimatedProtein": 20,
+            "tags": ["\u5f85\u78ba\u8a8d"],
+            "mainIngredients": ["\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d"],
+            "allergens": [],
+            "recommendationReason": URL_UNCERTAIN_REASON,
+            "confidence": min(max(confidence, 0), 0.35),
+            "sourceType": "url",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+        },
+        original_text=url,
+    )
 
 
 def _candidate_list(value: Any) -> list[dict[str, Any]]:

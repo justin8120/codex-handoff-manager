@@ -4,6 +4,8 @@ from app.main import app
 from app.services.ai_provider import normalize_meal_name
 from app.services.nutrition_enricher import (
     calibrate_confidence,
+    infer_recommendation_labels,
+    load_recommendation_categories,
     normalize_and_enrich_result,
     validate_analysis_result,
 )
@@ -300,6 +302,39 @@ def test_enrichment_caps_fried_chicken_cutlet_confidence_and_warns_about_oil():
     assert result.estimatedProtein == 35
     assert result.mainIngredients == ["\u96de\u8089", "\u9eb5\u8863", "\u6cb9"]
     assert "\u6cb9\u8102" in result.recommendationReason
+    assert "\u5065\u5eb7\u7dad\u6301" not in result.recommendedGoals
+    assert "\u5747\u8861\u98f2\u98df" not in result.recommendedGoals
+    assert "\u6e1b\u8102" not in result.recommendedGoals
+    assert "\u589e\u808c" in result.recommendedGoals or "\u9ad8\u86cb\u767d\u88dc\u5145" in result.recommendedGoals
+    assert "\u5076\u723e\u4eab\u7528" in result.recommendedGoals or "\u6cb9\u70b8\u63d0\u9192" in result.recommendedGoals
+
+
+def test_enrichment_assigns_treat_goals_for_cinnamon_swirl():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-cinnamon",
+            "mealName": "\u8089\u6842\u6372",
+            "mealType": "",
+            "estimatedCalories": 0,
+            "estimatedProtein": 0,
+            "tags": [],
+            "mainIngredients": [],
+            "allergens": [],
+            "recommendationReason": "",
+            "confidence": 0.55,
+            "sourceType": "url",
+            "createdAt": "2026-06-12T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+        original_text="cinnamon-swirl",
+    )
+
+    assert "\u751c\u9ede" in result.tags or "\u70d8\u7119" in result.tags
+    assert "\u6e1b\u8102" not in result.recommendedGoals
+    assert "\u5065\u5eb7\u7dad\u6301" not in result.recommendedGoals
+    assert "\u5747\u8861\u98f2\u98df" not in result.recommendedGoals
+    assert "\u5076\u723e\u4eab\u7528" in result.recommendedGoals
+    assert "\u9ad8\u7cd6\u63d0\u9192" in result.recommendedGoals
 
 
 def test_confidence_calibration_caps_incomplete_ingredients():
@@ -1182,7 +1217,49 @@ def test_analyze_url_fetch_failure_uses_low_confidence(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["sourceType"] == "url"
-    assert payload["confidence"] <= 0.4
+    assert payload["confidence"] <= 0.35
+    assert payload["mealName"] != "\u9910\u9ede\u5065\u5eb7\u5efa\u8b70"
+    assert "\u96de\u80f8\u8089" not in payload["mainIngredients"]
+
+
+def test_analyze_url_uses_mcdonalds_cinnamon_swirl_slug(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/url",
+        json={"url": "https://www.mcdonalds.com/tw/zh-tw/product/cinnamon-swirl.html"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u8089\u6842\u6372"
+    assert payload["sourceType"] == "url"
+    assert payload["mealName"] != "\u9910\u9ede\u5065\u5eb7\u5efa\u8b70"
+    assert "\u96de\u80f8\u8089" not in payload["mainIngredients"]
+    assert "\u7cd9\u7c73" not in payload["mainIngredients"]
+    assert "\u725b\u8089" not in payload["mainIngredients"]
+    assert "\u751c\u9ede" in payload["tags"] or "\u70d8\u7119" in payload["tags"]
+    assert payload["confidence"] <= 0.75
+    assert "\u6e1b\u8102" not in payload["recommendedGoals"]
+    assert "\u5065\u5eb7\u7dad\u6301" not in payload["recommendedGoals"]
+    assert "\u5747\u8861\u98f2\u98df" not in payload["recommendedGoals"]
+    assert "\u5076\u723e\u4eab\u7528" in payload["recommendedGoals"] or "\u9ad8\u7cd6\u63d0\u9192" in payload["recommendedGoals"]
+
+
+def test_recommendation_categories_are_data_driven():
+    categories = load_recommendation_categories()
+
+    assert any(category["label"] == "\u5076\u723e\u4eab\u7528" for category in categories)
+    labels = infer_recommendation_labels(
+        "\u81ea\u8a02\u751c\u9ede",
+        "\u751c\u9ede",
+        ["\u751c\u9ede", "\u9ad8\u7cd6"],
+        350,
+        5,
+    )
+    assert "\u5076\u723e\u4eab\u7528" in labels
+    assert "\u9ad8\u7cd6\u63d0\u9192" in labels
 
 
 def test_analyze_source_types_remain_distinct(monkeypatch):

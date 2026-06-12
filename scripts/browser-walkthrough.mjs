@@ -289,7 +289,7 @@ async function main() {
     assert(desktop.metrics.join(",") === "9,5,4", "Metrics did not match expected meal data")
     assert(desktop.aiHeading === "AI 餐點分析與資料集擴充", "AI analysis section was not rendered")
     assert(
-      desktop.body.includes("AI 後端尚未啟動") && desktop.body.includes("離線展示模式"),
+      desktop.body.includes("AI 後端尚未啟動") && desktop.body.includes("離線展示資料"),
       "Offline status was not shown",
     )
     assert(
@@ -343,7 +343,7 @@ async function main() {
       `new Promise((resolve) => {
         const input = document.querySelector('input[type="search"]');
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        setter.call(input, "不存在餐點");
+        setter.call(input, "不存在的餐點");
         input.dispatchEvent(new Event("input", { bubbles: true }));
         [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "搜尋 / 推薦").click();
         setTimeout(() => resolve(document.querySelector("#results .empty-state")?.textContent ?? ""), 100);

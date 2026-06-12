@@ -1,5 +1,12 @@
 export type HealthGoal = "減脂" | "增肌" | "均衡飲食" | "健康維持"
-export type MealGoal = HealthGoal | "高蛋白補充" | "偶爾享用"
+export type MealGoal =
+  | HealthGoal
+  | "高蛋白補充"
+  | "偶爾享用"
+  | "甜點"
+  | "高糖提醒"
+  | "油炸提醒"
+  | string
 
 export type DietTag =
   | "低卡"
@@ -7,12 +14,13 @@ export type DietTag =
   | "低脂"
   | "健康餐"
   | "素食"
-  | "飯類"
-  | "日式"
-  | "丼飯"
-  | "豬肉"
+  | "甜點"
+  | "烘焙"
+  | "炸物"
+  | "高糖"
+  | "高脂肪"
 
-export type Allergen = "花生" | "牛肉" | "海鮮" | "乳製品" | "蛋"
+export type Allergen = "花生" | "牛肉" | "海鮮" | "乳製品" | "蛋" | "麩質" | string
 
 export type MealSourceType = "文字" | "圖片" | "連結" | "資料集"
 
@@ -48,9 +56,9 @@ export const meals: Meal[] = [
     protein: 38,
     tags: ["高蛋白", "低脂", "健康餐"],
     goals: ["減脂", "增肌", "均衡飲食"],
-    ingredients: ["雞胸肉", "糙米", "青花菜", "紅蘿蔔"],
+    ingredients: ["雞胸肉", "蔬菜", "糙米飯", "花椰菜"],
     allergens: [],
-    reason: "雞胸肉提供高蛋白與低脂肪，搭配糙米與蔬菜，適合減脂或增肌族群。",
+    reason: "雞胸肉提供充足蛋白質，搭配糙米與蔬菜，適合作為日常均衡餐點。",
     sourceType: "資料集",
   },
   {
@@ -63,7 +71,7 @@ export const meals: Meal[] = [
     goals: ["減脂", "均衡飲食", "健康維持"],
     ingredients: ["雞蛋", "茶葉", "醬油", "香料"],
     allergens: ["蛋"],
-    reason: "茶葉蛋熱量低且方便取得，可作為補充蛋白質的小點心。",
+    reason: "茶葉蛋熱量低且含蛋白質，適合作為份量較小的蛋白質補充。",
     sourceType: "資料集",
   },
   {
@@ -76,7 +84,7 @@ export const meals: Meal[] = [
     goals: ["減脂", "均衡飲食", "健康維持"],
     ingredients: ["鮭魚", "生菜", "番茄", "酪梨"],
     allergens: ["海鮮"],
-    reason: "鮭魚富含蛋白質與 Omega-3，搭配大量蔬菜可提升飽足感。",
+    reason: "鮭魚提供蛋白質與脂肪酸，搭配蔬菜可作為清爽主餐。",
     sourceType: "資料集",
   },
   {
@@ -87,9 +95,9 @@ export const meals: Meal[] = [
     protein: 22,
     tags: ["低卡", "低脂", "健康餐", "素食"],
     goals: ["減脂", "均衡飲食", "健康維持"],
-    ingredients: ["板豆腐", "蔬菜", "藜麥", "菇類"],
+    ingredients: ["豆腐", "蔬菜", "藜麥", "菇類"],
     allergens: [],
-    reason: "豆腐提供植物性蛋白質，搭配蔬菜與藜麥，營養均衡且適合素食者。",
+    reason: "豆腐與藜麥提供植物性蛋白質，適合想增加蔬食比例的使用者。",
     sourceType: "資料集",
   },
   {
@@ -100,9 +108,9 @@ export const meals: Meal[] = [
     protein: 18,
     tags: ["低卡", "低脂", "健康餐"],
     goals: ["減脂", "均衡飲食", "健康維持"],
-    ingredients: ["燕麥", "希臘優格", "莓果", "堅果"],
+    ingredients: ["燕麥", "無糖優格", "莓果", "堅果"],
     allergens: ["乳製品"],
-    reason: "燕麥與優格可提供膳食纖維與蛋白質，適合早餐或點心。",
+    reason: "燕麥與優格能提供飽足感與蛋白質，適合作為早餐或點心。",
     sourceType: "資料集",
   },
   {
@@ -115,7 +123,7 @@ export const meals: Meal[] = [
     goals: ["增肌", "均衡飲食"],
     ingredients: ["牛肉", "蔬菜", "白飯", "洋蔥"],
     allergens: ["牛肉"],
-    reason: "牛肉提供鐵質與蛋白質，適合需要較高熱量與蛋白質的增肌需求。",
+    reason: "牛肉提供較高蛋白質，適合蛋白質需求較高者，但牛肉禁忌者需避開。",
     sourceType: "資料集",
   },
   {
@@ -126,9 +134,9 @@ export const meals: Meal[] = [
     protein: 16,
     tags: ["低卡", "低脂", "健康餐"],
     goals: ["減脂", "均衡飲食", "健康維持"],
-    ingredients: ["地瓜", "雞蛋", "小黃瓜", "番茄"],
+    ingredients: ["地瓜", "雞蛋", "小黃瓜", "生菜"],
     allergens: ["蛋"],
-    reason: "地瓜提供複合碳水化合物，雞蛋補充蛋白質，整體熱量容易控制。",
+    reason: "地瓜提供碳水與纖維，雞蛋補充蛋白質，適合作為輕量餐點。",
     sourceType: "資料集",
   },
   {
@@ -139,9 +147,9 @@ export const meals: Meal[] = [
     protein: 25,
     tags: ["低脂", "健康餐"],
     goals: ["均衡飲食", "健康維持"],
-    ingredients: ["白飯", "蝦仁", "魚片", "青菜"],
+    ingredients: ["白飯", "蝦仁", "蛤蜊", "魚片"],
     allergens: ["海鮮"],
-    reason: "粥品口感清淡，海鮮提供蛋白質，但海鮮過敏者需避免。",
+    reason: "粥品口感溫和並含海鮮蛋白質，但海鮮禁忌者需避免。",
     sourceType: "資料集",
   },
   {
@@ -152,9 +160,9 @@ export const meals: Meal[] = [
     protein: 20,
     tags: ["低脂", "健康餐", "素食"],
     goals: ["均衡飲食", "健康維持"],
-    ingredients: ["豆干", "蔬菜", "糙米飯", "菇類"],
+    ingredients: ["豆製品", "蔬菜", "糙米飯", "菇類"],
     allergens: [],
-    reason: "蔬食便當以植物性食材為主，搭配全穀類可維持均衡營養。",
+    reason: "蔬食便當能增加纖維與植化素攝取，適合作為日常均衡選擇。",
     sourceType: "資料集",
   },
 ]

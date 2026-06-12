@@ -77,12 +77,18 @@ def recommend_meals(
 def _matches_health_goal(meal: MealAnalysisResult, health_goal: str) -> bool:
     if not health_goal:
         return True
+    profile = " ".join([meal.mealName, meal.mealType, *meal.tags])
+    is_risky = any(token in profile for token in ["甜點", "高糖", "炸物", "油炸", "高脂肪"])
     if health_goal == "減脂":
-        return meal.estimatedCalories <= 500 or "低卡" in meal.tags or "低脂" in meal.tags
+        return not is_risky and (
+            meal.estimatedCalories <= 500 or "低卡" in meal.tags or "低脂" in meal.tags
+        )
     if health_goal == "增肌":
         return meal.estimatedProtein >= 25 or "高蛋白" in meal.tags
     if health_goal == "均衡飲食":
-        return "健康餐" in meal.tags or meal.estimatedProtein >= 15
+        return not is_risky and ("健康餐" in meal.tags or meal.estimatedProtein >= 15)
     if health_goal == "健康維持":
-        return "健康餐" in meal.tags or "低脂" in meal.tags or meal.estimatedCalories <= 550
+        return not is_risky and (
+            "健康餐" in meal.tags or "低脂" in meal.tags or meal.estimatedCalories <= 550
+        )
     return True
