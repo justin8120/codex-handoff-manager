@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.ai_provider import normalize_meal_name
 from app.services.nutrition_enricher import normalize_and_enrich_result, validate_analysis_result
+from app.services.openai_meal_analyzer import classify_text_hint
 from app.services.web_food_verifier import rerank_food_candidates
 
 
@@ -18,6 +19,22 @@ def test_normalize_meal_name_maps_romanized_names():
     assert normalize_meal_name("Tendon") == "\u5929\u4e3c"
     assert normalize_meal_name("Curry Rice") == "\u5496\u54e9\u98ef"
     assert normalize_meal_name("Fried Rice") == "\u7092\u98ef"
+
+
+def test_classify_text_hint_treats_single_peanut_as_weak_hint():
+    hint = classify_text_hint("\u82b1\u751f")
+
+    assert hint["weakHint"] == "\u82b1\u751f"
+    assert hint["explicitMealName"] is None
+    assert hint["isExplicitOverride"] is False
+
+
+def test_classify_text_hint_detects_explicit_override():
+    hint = classify_text_hint("\u9019\u662f\u82b1\u751f")
+
+    assert hint["explicitMealName"] == "\u82b1\u751f"
+    assert hint["weakHint"] is None
+    assert hint["isExplicitOverride"] is True
 
 
 def test_validate_analysis_result_flags_english_meal_name():
@@ -445,7 +462,8 @@ def test_analyze_image_with_xiaolongbao_hint_uses_text_before_uncertain_fallback
     assert payload["tags"] == ["\u4e2d\u5f0f", "\u9ede\u5fc3", "\u9eb5\u98df"]
     assert payload["mainIngredients"] == ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"]
     assert payload["allergens"] == ["\u9ea9\u8cea"]
-    assert "\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0" in payload["recommendationReason"]
+    assert "\u5c0f\u7c60\u5305" in payload["recommendationReason"]
+    assert "\u9eb5\u76ae" in payload["recommendationReason"]
 
 
 def test_analyze_image_accepts_text_hint_field(monkeypatch):
@@ -460,6 +478,102 @@ def test_analyze_image_accepts_text_hint_field(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["mealName"] == "\u5c0f\u7c60\u5305"
+
+
+def test_image_result_keeps_soup_dumpling_when_text_hint_is_weak_peanut(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "\u53ef\u898b\u9eb5\u76ae\u3001\u8089\u9921\u3001\u6e6f\u6c41\u8207\u84b8\u7c60",
+            "candidates": [
+                {
+                    "name": "\u5c0f\u7c60\u5305",
+                    "confidence": 0.82,
+                    "evidence": ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41", "\u84b8\u7c60"],
+                },
+                {
+                    "name": "\u82b1\u751f",
+                    "confidence": 0.2,
+                    "evidence": ["\u4f7f\u7528\u8005\u6587\u5b57\u63d0\u793a"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"text": "\u82b1\u751f"},
+        files={"file": ("\u6e6f\u5305.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] != "\u82b1\u751f"
+    assert payload["mealName"] in {"\u5c0f\u7c60\u5305", "\u6e6f\u5305"}
+    assert payload["mainIngredients"] == ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"]
+    assert "\u9ea9\u8cea" in payload["allergens"]
+    assert "\u672a\u8986\u84cb\u5716\u7247\u8fa8\u8b58\u7d50\u679c" in payload["recommendationReason"]
+
+
+def test_explicit_peanut_hint_can_override_uncertain_image(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"text": "\u9019\u662f\u82b1\u751f"},
+        files={"file": ("unclear.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "\u82b1\u751f"
+    assert payload["mainIngredients"] == ["\u82b1\u751f"]
+    assert "\u82b1\u751f" in payload["allergens"]
+
+
+def test_peanut_allergy_hint_does_not_rename_soup_dumpling(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("WEB_VERIFY_ENABLED", "false")
+
+    def fake_candidate_completion(provider_name, text, image_url):
+        return {
+            "visualDescription": "\u53ef\u898b\u9eb5\u76ae\u3001\u8089\u9921\u3001\u6e6f\u6c41\u8207\u84b8\u7c60",
+            "candidates": [
+                {
+                    "name": "\u6e6f\u5305",
+                    "confidence": 0.8,
+                    "evidence": ["\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41", "\u84b8\u7c60"],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(openai_meal_analyzer, "_call_image_candidate_completion", fake_candidate_completion)
+
+    response = client.post(
+        "/api/analyze/image",
+        data={"text": "\u82b1\u751f\u904e\u654f"},
+        files={"file": ("\u6e6f\u5305.jpg", b"fake-image", "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] != "\u82b1\u751f"
+    assert payload["mealName"] in {"\u5c0f\u7c60\u5305", "\u6e6f\u5305"}
+    assert "\u9ea9\u8cea" in payload["allergens"]
+    assert "\u82b1\u751f" in payload["allergens"]
+    assert "\u82b1\u751f\u9650\u5236" in payload["recommendationReason"]
 
 
 def test_analyze_image_with_english_soup_dumplings_hint_uses_xiaolongbao(monkeypatch):

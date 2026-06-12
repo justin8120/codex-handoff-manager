@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
@@ -148,13 +149,15 @@ async def analyze_image(file: UploadFile, hint: str = "") -> MealAnalysisResult:
     media_type = file.content_type or "image/jpeg"
     encoded = base64.b64encode(content).decode("ascii")
     data_url = f"data:{media_type};base64,{encoded}"
-    context = f"{hint.strip()} {file.filename or 'uploaded meal image'}".strip()
+    text_hint = hint.strip()
+    filename_context = f"{file.filename or 'uploaded meal image'}".strip()
     return _safe_analyze(
         "image",
-        text=context,
+        text=filename_context,
         image_url=data_url,
         image_bytes=content,
         media_type=media_type,
+        text_hint=text_hint,
     )
 
 
@@ -174,18 +177,19 @@ def _safe_analyze(
     image_url: str | None = None,
     image_bytes: bytes | None = None,
     media_type: str | None = None,
+    text_hint: str | None = None,
 ) -> MealAnalysisResult:
     provider = get_ai_provider()
     if provider.name == "mock":
-        return _fallback_result(text, source_type)
+        return _fallback_result(text, source_type, text_hint=text_hint)
     if not provider.configured:
         if fallback_enabled():
-            return _fallback_result(text, source_type, confidence=0.4)
+            return _fallback_result(text, source_type, confidence=0.4, text_hint=text_hint)
         raise HTTPException(status_code=503, detail=CONFIGURATION_ERROR)
 
     try:
         if source_type == "image" and image_url:
-            return _analyze_image_with_verification(provider.name, text, image_url, image_bytes, media_type)
+            return _analyze_image_with_verification(provider.name, text, image_url, image_bytes, media_type, text_hint)
         return _call_chat_completion(provider_name=provider.name, text=text, source_type=source_type, image_url=image_url)
     except (
         RateLimitError,
@@ -198,7 +202,7 @@ def _safe_analyze(
     ) as error:
         print(f"AI provider error ({provider.name}): {error}")
         if fallback_enabled():
-            return _fallback_result(text, source_type, confidence=0.45)
+            return _fallback_result(text, source_type, confidence=0.45, text_hint=text_hint)
         raise HTTPException(status_code=502, detail=f"AI provider error: {error}") from error
 
 
@@ -252,29 +256,34 @@ def _analyze_image_with_verification(
     image_url: str,
     image_bytes: bytes | None = None,
     media_type: str | None = None,
+    text_hint: str | None = None,
 ) -> MealAnalysisResult:
     provider = get_ai_provider()
+    hint_info = classify_text_hint(text_hint or "")
+    analysis_text = _image_analysis_context(text, text_hint or "")
     retry_happened = False
     fallback_happened = False
     try:
-        payload = _call_image_candidate_completion_compatible(provider_name, text, image_url, image_bytes, media_type)
+        payload = _call_image_candidate_completion_compatible(provider_name, analysis_text, image_url, image_bytes, media_type)
     except Exception as error:
         print(f"Image candidate analysis failed ({provider_name}): {error}")
         try:
-            direct_result = _call_chat_completion(provider_name, text, "image", image_url)
+            direct_result = _call_chat_completion(provider_name, analysis_text, "image", image_url)
             issues = _image_validation_errors(direct_result, text)
-            if not issues:
-                _log_image_validation(provider_name, "", direct_result, issues, retry_happened, fallback_happened)
-                return direct_result
+            merged_result = merge_image_result_with_text_hint(direct_result, hint_info, issues)
+            merged_issues = _image_validation_errors(merged_result, text)
+            if not merged_issues:
+                _log_image_validation(provider_name, "", merged_result, merged_issues, retry_happened, fallback_happened)
+                return merged_result
         except Exception as direct_error:
             print(f"Direct image analysis failed ({provider_name}): {direct_error}")
-        result = _fallback_result(text, "image", confidence=0.35)
+        result = _fallback_result(text, "image", confidence=0.35, text_hint=text_hint, text_hint_info=hint_info)
         _log_image_validation(provider_name, "", result, validate_analysis_result(result), retry_happened, True)
         return result
     visual_description = str(payload.get("visualDescription") or payload.get("visual_description") or text)
     candidates = _candidate_list(payload.get("candidates"))
     if not candidates:
-        result = _fallback_result(text, "image", confidence=0.35)
+        result = _fallback_result(text, "image", confidence=0.35, text_hint=text_hint, text_hint_info=hint_info)
         _log_image_validation(provider_name, "", result, validate_analysis_result(result), retry_happened, True)
         return result
 
@@ -288,10 +297,14 @@ def _analyze_image_with_verification(
     raw_name = str(verification.get("verifiedName") or "")
     validation_context = _verification_context(raw_name, verification, visual_description)
     issues = _image_validation_errors(result, validation_context)
+    result = merge_image_result_with_text_hint(result, hint_info, issues)
+    issues = _image_validation_errors(result, validation_context)
     if issues and provider.configured and provider.name in {"openai", "gemini"}:
         retry_happened = True
         try:
-            corrected = _retry_image_correction(provider_name, text, image_url, visual_description, candidates, result, issues)
+            corrected = _retry_image_correction(provider_name, analysis_text, image_url, visual_description, candidates, result, issues)
+            corrected_issues = _image_validation_errors(corrected, validation_context)
+            corrected = merge_image_result_with_text_hint(corrected, hint_info, corrected_issues)
             corrected_issues = _image_validation_errors(corrected, validation_context)
             if not corrected_issues:
                 _log_image_validation(provider_name, raw_name, corrected, corrected_issues, retry_happened, fallback_happened)
@@ -303,7 +316,7 @@ def _analyze_image_with_verification(
 
     if issues:
         fallback_happened = True
-        result = _fallback_result(text, "image", confidence=0.35)
+        result = _fallback_result(text, "image", confidence=0.35, text_hint=text_hint, text_hint_info=hint_info)
         issues = _image_validation_errors(result, validation_context)
     _log_image_validation(provider_name, raw_name, result, issues, retry_happened, fallback_happened)
     return result
@@ -387,7 +400,7 @@ def _call_gemini_image_candidate_completion(text: str, image_bytes: bytes, media
         "Use Traditional Chinese meal names and concrete visual evidence. "
         "Do not return placeholders. Do not use generic names such as 餐點, 食物, 料理, 主餐, or 湯包 unless "
         "there is visible dumpling evidence such as 小籠包, 麵皮, 肉餡, 湯汁, 蒸籠, or folds. "
-        "If the user text mentions 花生, peanut, 西瓜, or watermelon, treat that text as a strong recognition hint. "
+        "If user text mentions 花生, peanut, 西瓜, or watermelon, treat it as auxiliary context, not as an automatic override. "
         "If noodles, rice, egg, meat, seafood, vegetables, soup, breading, or wrappers are visible, mention them in evidence. "
         f"Context or filename: {text}"
     )
@@ -583,6 +596,16 @@ def _verification_context(raw_name: str, verification: dict[str, Any], visual_de
     )
 
 
+def _image_analysis_context(filename_context: str, text_hint: str) -> str:
+    if not text_hint.strip():
+        return filename_context
+    return (
+        f"Image filename/context: {filename_context}. "
+        f"User text hint: {text_hint.strip()}. "
+        "Use the image as the primary evidence. Treat the text only as auxiliary context unless it is an explicit label."
+    )
+
+
 def _image_validation_errors(result: MealAnalysisResult, context: str) -> list[str]:
     issues = validate_analysis_result(result)
     if result.mealName in {SOUP_DUMPLING, XIAOLONGBAO} and not _has_soup_dumpling_evidence(context):
@@ -614,14 +637,83 @@ def _string_list(value: Any) -> list[str]:
     return []
 
 
-def _fallback_result(text: str, source_type: str, confidence: float | None = None) -> MealAnalysisResult:
+def classify_text_hint(text: str) -> dict[str, Any]:
+    normalized = normalize_meal_name(normalize_user_facing_text(text)).strip()
+    lowered = normalized.lower()
+    allergens: list[str] = []
+    avoid_ingredients: list[str] = []
+
+    if _has_any(
+        lowered,
+        [
+            "\u4e0d\u8981\u82b1\u751f",
+            "\u907f\u514d\u82b1\u751f",
+            "\u82b1\u751f\u904e\u654f",
+            "avoid peanut",
+            "no peanut",
+            "peanut allergy",
+        ],
+    ):
+        allergens = _add_unique(allergens, PEANUT)
+        avoid_ingredients = _add_unique(avoid_ingredients, PEANUT)
+
+    explicit_name = _explicit_hint_name(normalized) if not avoid_ingredients else None
+    weak_hint = None if explicit_name else _weak_hint_name(normalized, allow_restricted=not avoid_ingredients)
+    return {
+        "explicitMealName": explicit_name,
+        "weakHint": weak_hint,
+        "allergens": allergens,
+        "avoidIngredients": avoid_ingredients,
+        "isExplicitOverride": bool(explicit_name),
+    }
+
+
+def merge_image_result_with_text_hint(
+    image_result: MealAnalysisResult,
+    text_hint_info: dict[str, Any] | None,
+    validation_errors: list[str] | None = None,
+) -> MealAnalysisResult:
+    hint_info = text_hint_info or {}
+    explicit_name = str(hint_info.get("explicitMealName") or "")
+    weak_hint = str(hint_info.get("weakHint") or "")
+    hint_allergens = _string_list(hint_info.get("allergens"))
+    avoid_ingredients = _string_list(hint_info.get("avoidIngredients"))
+    image_valid = not validation_errors and image_result.confidence >= 0.45
+
+    if image_valid:
+        return _merge_hint_constraints(image_result, weak_hint, hint_allergens, avoid_ingredients)
+
+    if explicit_name:
+        result = _hint_result(explicit_name, "image", confidence=0.9)
+        return _merge_hint_constraints(result, "", hint_allergens, avoid_ingredients)
+
+    if weak_hint and _is_uncertain_image_result(image_result):
+        result = _hint_result(weak_hint, "image", confidence=0.68)
+        return _merge_hint_constraints(result, "", hint_allergens, avoid_ingredients)
+
+    return _merge_hint_constraints(image_result, weak_hint, hint_allergens, avoid_ingredients)
+
+
+def _fallback_result(
+    text: str,
+    source_type: str,
+    confidence: float | None = None,
+    text_hint: str | None = None,
+    text_hint_info: dict[str, Any] | None = None,
+) -> MealAnalysisResult:
     normalized = text.lower()
     if source_type == "image":
-        hinted_result = _hinted_image_result(text, confidence=confidence or 0.68)
-        if hinted_result:
-            return hinted_result
-    if source_type == "image" and not _has_known_image_hint(text):
-        return _uncertain_image_result(confidence or 0.35)
+        hint_info = text_hint_info or classify_text_hint(text_hint or "")
+        image_context_result = _hinted_image_result(text, confidence=confidence or 0.68)
+        if image_context_result:
+            issues = _image_validation_errors(image_context_result, text)
+            return merge_image_result_with_text_hint(image_context_result, hint_info, issues)
+        if not _has_known_image_hint(text):
+            return merge_image_result_with_text_hint(
+                _uncertain_image_result(confidence or 0.35),
+                hint_info,
+                ["image context is uncertain"],
+            )
     meal_name = FALLBACK_MEAL_NAME
     meal_type = FALLBACK_MEAL_TYPE
     calories = 420
@@ -734,6 +826,45 @@ def _has_known_image_hint(text: str) -> bool:
     return _has_any(normalized.lower(), hints)
 
 
+def _explicit_hint_name(text: str) -> str | None:
+    patterns = [
+        r"^\s*\u9019\u662f\s*(.+)$",
+        r"^\s*\u5716\u7247\u662f\s*(.+)$",
+        r"^\s*\u9910\u9ede\u662f\s*(.+)$",
+        r"^\s*\u540d\u7a31[:\uff1a]\s*(.+)$",
+        r"^\s*\u9019\u5f35\u662f\s*(.+)$",
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, text)
+        if match:
+            return _clean_hint_name(match.group(1))
+    return None
+
+
+def _weak_hint_name(text: str, allow_restricted: bool = True) -> str | None:
+    normalized = normalize_meal_name(text)
+    lowered = normalized.lower()
+    if _is_butadon_text(lowered):
+        return BUTADON
+    if _is_soup_dumpling_hint(lowered):
+        return XIAOLONGBAO
+    if _is_watermelon_hint(lowered):
+        return WATERMELON
+    if allow_restricted and _is_peanut_hint(lowered):
+        return PEANUT
+    if OYAKODON in normalized or "oyakodon" in lowered:
+        return OYAKODON
+    return None
+
+
+def _clean_hint_name(value: str) -> str | None:
+    cleaned = re.split(r"[\s,，。；;、/\\]+", value.strip())[0]
+    cleaned = cleaned.removesuffix(".jpg").removesuffix(".jpeg").removesuffix(".png")
+    if not cleaned:
+        return None
+    return normalize_meal_name(cleaned)
+
+
 def _hinted_image_result(text: str, confidence: float) -> MealAnalysisResult | None:
     normalized = normalize_meal_name(text).lower()
     if _is_butadon_text(normalized):
@@ -747,6 +878,46 @@ def _hinted_image_result(text: str, confidence: float) -> MealAnalysisResult | N
     if _is_peanut_hint(normalized):
         return _hint_result(PEANUT, "image", confidence=0.9)
     return None
+
+
+def _merge_hint_constraints(
+    result: MealAnalysisResult,
+    weak_hint: str,
+    hint_allergens: list[str],
+    avoid_ingredients: list[str],
+) -> MealAnalysisResult:
+    payload = result.model_dump()
+    payload["allergens"] = normalize_user_facing_list(
+        _add_many_unique(_string_list(payload.get("allergens")), [*hint_allergens, *avoid_ingredients]),
+    )
+    reason = str(payload.get("recommendationReason") or "")
+    notes: list[str] = []
+    if weak_hint and weak_hint != result.mealName:
+        notes.append(
+            f"\u6587\u5b57\u63cf\u8ff0\u300c{weak_hint}\u300d\u50c5\u4f5c\u70ba\u8f14\u52a9\u63d0\u793a\uff0c"
+            "\u672a\u8986\u84cb\u5716\u7247\u8fa8\u8b58\u7d50\u679c\u3002",
+        )
+    if avoid_ingredients:
+        avoid_text = "\u3001".join(avoid_ingredients)
+        notes.append(
+            "\u5df2\u6ce8\u610f\u6587\u5b57\u63cf\u8ff0\u4e2d\u7684"
+            f"{avoid_text}\u9650\u5236\u3002",
+        )
+    if notes:
+        payload["recommendationReason"] = normalize_user_facing_text("".join([reason, *notes]))
+    return normalize_and_enrich_result(payload, original_text=str(payload.get("mealName") or ""))
+
+
+def _add_many_unique(values: list[str], additions: list[str]) -> list[str]:
+    merged = list(values)
+    for item in additions:
+        if item and item not in merged:
+            merged.append(item)
+    return merged
+
+
+def _is_uncertain_image_result(result: MealAnalysisResult) -> bool:
+    return result.mealName == "\u7591\u4f3c\u9910\u9ede" or result.confidence < 0.35
 
 
 def _is_soup_dumpling_hint(text: str) -> bool:
