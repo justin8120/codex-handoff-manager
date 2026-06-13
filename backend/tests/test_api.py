@@ -1569,3 +1569,135 @@ def test_ingredient_matches_exclusion_checks_full_food_text():
 
     assert meals_store.ingredient_matches_exclusion(food_text, ["\u8c6c\u8089"])
     assert meals_store.ingredient_matches_exclusion(food_text, ["\u8089\u985e"])
+
+
+def test_meals_dataset_has_expanded_complete_records():
+    meals = meals_store.load_meals()
+    ids = [meal.id for meal in meals]
+
+    assert len(meals) >= 100
+    assert len(ids) == len(set(ids))
+    assert all(meal.mealName.strip() for meal in meals)
+    assert all(meal.tags for meal in meals)
+    assert all(meal.mainIngredients for meal in meals)
+    assert all(meal.recommendationReason.strip() for meal in meals)
+    assert all("\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d" not in meal.mainIngredients for meal in meals)
+    assert all("\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d" not in meal.mainIngredients for meal in meals)
+
+
+def test_dataset_soup_dumpling_is_complete():
+    soup_dumplings = [meal for meal in meals_store.load_meals() if meal.mealName in {"\u6e6f\u5305", "\u5c0f\u7c60\u5305"}]
+
+    assert soup_dumplings
+    for meal in soup_dumplings:
+        assert {"\u9eb5\u76ae", "\u8c6c\u8089\u9921", "\u6e6f\u6c41"}.intersection(meal.mainIngredients)
+        assert meals_store.is_complete_meal(meal)
+
+
+def test_recommend_filters_incomplete_meals(monkeypatch):
+    monkeypatch.setattr(
+        meals_store,
+        "load_meals",
+        lambda: [
+            meal_fixture(
+                "\u6e6f\u5305",
+                tags=["\u4e2d\u5f0f"],
+                ingredients=["\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d"],
+                reason="\u7cfb\u7d71\u5df2\u6839\u64da\u5019\u9078\u9910\u9ede\u8207\u53ef\u898b\u98df\u6750\u7279\u5fb5\u91cd\u65b0\u6821\u6b63\u8fa8\u8b58\u7d50\u679c\u3002",
+            ),
+            meal_fixture("\u852c\u98df\u4fbf\u7576", tags=["\u5065\u5eb7\u9910"], ingredients=["\u8c46\u8150", "\u852c\u83dc"]),
+        ],
+    )
+
+    response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "\u5747\u8861\u98f2\u98df", "tags": [], "excludedIngredients": [], "keyword": None},
+    )
+
+    names = [meal["mealName"] for meal in response.json()]
+    assert "\u6e6f\u5305" not in names
+    assert "\u852c\u98df\u4fbf\u7576" in names
+
+
+def test_dataset_recommendation_exclusions_and_keyword_search():
+    pork_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": [], "excludedIngredients": ["\u8c6c\u8089"], "keyword": None},
+    )
+    beef_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": [], "excludedIngredients": ["\u725b\u8089"], "keyword": None},
+    )
+    seafood_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": [], "excludedIngredients": ["\u6d77\u9bae"], "keyword": None},
+    )
+    cilantro_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": [], "excludedIngredients": ["\u9999\u83dc"], "keyword": None},
+    )
+    spicy_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": [], "excludedIngredients": ["\u4e0d\u5403\u8fa3"], "keyword": None},
+    )
+    low_calorie_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": [], "excludedIngredients": [], "keyword": "\u4f4e\u5361"},
+    )
+    dessert_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": [], "excludedIngredients": [], "keyword": "\u751c\u9ede"},
+    )
+
+    pork_names = [meal["mealName"] for meal in pork_response.json()]
+    beef_names = [meal["mealName"] for meal in beef_response.json()]
+    seafood_names = [meal["mealName"] for meal in seafood_response.json()]
+    cilantro_names = [meal["mealName"] for meal in cilantro_response.json()]
+    spicy_names = [meal["mealName"] for meal in spicy_response.json()]
+    low_calorie_names = [meal["mealName"] for meal in low_calorie_response.json()]
+    dessert_names = [meal["mealName"] for meal in dessert_response.json()]
+
+    assert "\u8c5a\u4e3c" not in pork_names
+    assert "\u6e6f\u5305" not in pork_names
+    assert "\u725b\u4e3c" not in beef_names
+    assert "\u725b\u8089\u9eb5" not in beef_names
+    assert "\u8766\u4ec1\u7092\u98ef" not in seafood_names
+    assert "\u9bae\u9b5a\u5065\u5eb7\u9910" not in seafood_names
+    assert "\u9999\u83dc\u725b\u8089\u6e6f" not in cilantro_names
+    assert "\u9ebb\u8fa3\u8c46\u8150" not in spicy_names
+    assert any(name in low_calorie_names for name in ["\u4f4e\u5361\u6c99\u62c9", "\u8212\u80a5\u96de\u80f8\u9910"])
+    assert any(name in dessert_names for name in ["\u8089\u6842\u6372", "\u86cb\u7cd5", "OREO \u51b0\u70ab\u98a8"])
+
+
+def test_vegetarian_recommendation_excludes_dataset_meat_and_seafood():
+    response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": ["\u7d20\u98df"], "excludedIngredients": [], "keyword": None},
+    )
+
+    names = [meal["mealName"] for meal in response.json()]
+    assert "\u81ed\u8c46\u8150" in names
+    assert "\u8c5a\u4e3c" not in names
+    assert "\u8766\u4ec1\u7092\u98ef" not in names
+
+
+def test_incomplete_image_analysis_confidence_is_capped():
+    result = normalize_and_enrich_result(
+        {
+            "id": "test-incomplete",
+            "mealName": "\u7591\u4f3c\u9910\u9ede",
+            "mealType": "\u5f85\u78ba\u8a8d",
+            "estimatedCalories": 500,
+            "estimatedProtein": 20,
+            "tags": ["\u5f85\u78ba\u8a8d"],
+            "mainIngredients": ["\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d"],
+            "allergens": [],
+            "recommendationReason": "\u7cfb\u7d71\u7121\u6cd5\u5f9e\u5716\u7247\u4e2d\u7a69\u5b9a\u8fa8\u8b58\u5177\u9ad4\u9910\u9ede\uff0c\u5efa\u8b70\u88dc\u5145\u6587\u5b57\u63cf\u8ff0\u3002",
+            "confidence": 0.95,
+            "sourceType": "image",
+            "createdAt": "2026-06-13T00:00:00+00:00",
+            "isAiGenerated": True,
+        },
+    )
+
+    assert result.confidence <= 0.4

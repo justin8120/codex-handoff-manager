@@ -116,6 +116,18 @@ const constraintWords = [
   "無",
 ]
 const safeShortTerms = new Set(["蛋", "辣", "酒", "肉"])
+const invalidIngredientTokens = [
+  "主要食材待確認",
+  "主要食材需人工確認",
+  "餐點影像特徵不足",
+  "未確認",
+  "unknown",
+]
+const genericReasonTemplates = [
+  "系統已根據候選餐點與可見食材特徵重新校正辨識結果。",
+  "系統已根據輸入內容提供餐點健康建議。",
+  "系統已完成餐點分析。",
+]
 
 function toggleValue<T>(values: T[], value: T) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
@@ -131,6 +143,24 @@ function formatCalories(value: number) {
 
 function formatProtein(value: number) {
   return value > 0 ? `${value}g` : "未估算"
+}
+
+function isCompleteMeal(meal: Meal) {
+  const hasValidCalories = meal.calories > 0 || meal.type === "飲品"
+  const reason = meal.reason.trim()
+  return (
+    meal.name.trim().length > 0 &&
+    hasValidCalories &&
+    meal.protein >= 0 &&
+    meal.tags.length > 0 &&
+    meal.ingredients.length > 0 &&
+    !meal.ingredients.some((item) =>
+      invalidIngredientTokens.some((token) => item.toLowerCase().includes(token.toLowerCase())),
+    ) &&
+    reason.length > 0 &&
+    !genericReasonTemplates.includes(reason) &&
+    !/fallback|rule-based|AI 服務無法使用/i.test(reason)
+  )
 }
 
 function loadStoredList(key: string) {
@@ -434,7 +464,11 @@ export function App() {
     void loadBackendData()
   }, [])
 
-  const displayedMeals = hasSearched ? recommendedMeals : mealDataset
+  const completeRecommendedMeals = useMemo(
+    () => recommendedMeals.filter(isCompleteMeal),
+    [recommendedMeals],
+  )
+  const displayedMeals = hasSearched ? completeRecommendedMeals : mealDataset
   const aiStatusLabel = backendError ? "未連線" : "已連線"
   const apiStatusLabel = backendHealth?.aiConfigured ? "已設定" : "未設定"
   const allDietTags = useMemo(() => [...dietTags, ...customDietTags], [customDietTags])
@@ -734,7 +768,13 @@ export function App() {
             ) : null}
             {analysisError ? <p className="error-message">{analysisError}</p> : null}
 
-            {analysisResult ? (
+            {analysisResult && !isCompleteMeal(analysisResult) ? (
+              <p className="error-message">
+                此次分析結果的主要食材或說明不足，建議補充餐點名稱或主要食材後重新分析。
+              </p>
+            ) : null}
+
+            {analysisResult && isCompleteMeal(analysisResult) ? (
               <div className="analysis-result" aria-label="AI 分析結果">
                 <MealCard meal={analysisResult} />
                 <button className="utility-button" onClick={handleAddAnalysis}>
@@ -854,9 +894,9 @@ export function App() {
             <p className="empty-state">請選擇條件後開始推薦，或先查看下方餐點資料集。</p>
           ) : null}
 
-          {hasSearched && recommendedMeals.length === 0 ? (
+          {hasSearched && completeRecommendedMeals.length === 0 ? (
             <p className="empty-state">
-              目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。
+              目前沒有符合條件的完整餐點資料，請調整條件或補充餐點資訊。
             </p>
           ) : null}
 

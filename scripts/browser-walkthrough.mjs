@@ -350,7 +350,7 @@ async function main() {
       })`,
     )
     assert(
-      emptyResult.includes("目前沒有符合條件的餐點"),
+      emptyResult.includes("目前沒有符合條件的完整餐點資料"),
       "Empty recommendation state was not shown",
     )
 

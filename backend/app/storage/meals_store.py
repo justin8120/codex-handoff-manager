@@ -125,6 +125,19 @@ CONSTRAINT_WORDS = [
     "\u7121",
 ]
 SAFE_SHORT_TERMS = {"\u86cb", "\u8fa3", "\u9152", "\u8089"}
+INVALID_INGREDIENT_TOKENS = {
+    "unknown",
+    "\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d",
+    "\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d",
+    "\u9910\u9ede\u5f71\u50cf\u7279\u5fb5\u4e0d\u8db3",
+    "\u672a\u78ba\u8a8d",
+}
+GENERIC_REASON_TEMPLATES = {
+    "\u7cfb\u7d71\u5df2\u6839\u64da\u5019\u9078\u9910\u9ede\u8207\u53ef\u898b\u98df\u6750\u7279\u5fb5\u91cd\u65b0\u6821\u6b63\u8fa8\u8b58\u7d50\u679c\u3002",
+    "\u7cfb\u7d71\u5df2\u6839\u64da\u8f38\u5165\u5167\u5bb9\u63d0\u4f9b\u9910\u9ede\u5065\u5eb7\u5efa\u8b70\u3002",
+    "\u7cfb\u7d71\u5df2\u5b8c\u6210\u9910\u9ede\u5206\u6790\u3002",
+}
+FORBIDDEN_ENGINEERING_TOKENS = ["fallback", "rule-based", "AI \u670d\u52d9\u7121\u6cd5\u4f7f\u7528"]
 
 _lock = Lock()
 
@@ -169,6 +182,8 @@ def recommend_meals(
 
     results: list[MealAnalysisResult] = []
     for meal in load_meals():
+        if not is_complete_meal(meal):
+            continue
         searchable_text = _meal_search_text(meal)
         if ingredient_matches_exclusion(searchable_text, effective_excluded):
             continue
@@ -219,6 +234,31 @@ def _term_matches_food_text(food_text: str, term: str) -> bool:
     if len(normalized) < 2 and normalized not in SAFE_SHORT_TERMS:
         return False
     return normalized in food_text
+
+
+def is_complete_meal(meal: MealAnalysisResult) -> bool:
+    if not meal.mealName.strip():
+        return False
+    if meal.estimatedCalories <= 0 and meal.mealType != "\u98f2\u54c1":
+        return False
+    if meal.estimatedProtein < 0:
+        return False
+    if not meal.tags:
+        return False
+    if not meal.mainIngredients:
+        return False
+    if any(_has_invalid_ingredient_token(item) for item in meal.mainIngredients):
+        return False
+    reason = meal.recommendationReason.strip()
+    if not reason or reason in GENERIC_REASON_TEMPLATES:
+        return False
+    reason_lower = reason.lower()
+    return not any(token.lower() in reason_lower for token in FORBIDDEN_ENGINEERING_TOKENS)
+
+
+def _has_invalid_ingredient_token(value: str) -> bool:
+    lowered = str(value or "").strip().lower()
+    return not lowered or any(token.lower() in lowered for token in INVALID_INGREDIENT_TOKENS)
 
 
 def _meal_search_text(meal: MealAnalysisResult) -> str:

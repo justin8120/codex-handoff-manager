@@ -486,7 +486,7 @@ def calibrate_confidence(
     if source == "image" and used_fallback and validation_errors:
         confidence = min(confidence, 0.4)
     if not _is_complete_result(meal_name, calories, protein, ingredients, reason, source):
-        confidence = min(confidence, 0.75)
+        confidence = min(confidence, 0.4 if source in {"image", "url"} else 0.75)
     if meal_name == "\u70b8\u96de\u6392":
         confidence = min(confidence, 0.85)
     return confidence

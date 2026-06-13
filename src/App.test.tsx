@@ -72,6 +72,22 @@ const analysisMeal: BackendMeal = {
   recommendedGoals: ["減脂", "健康維持"],
 }
 
+const incompleteMeal: BackendMeal = {
+  id: "incomplete",
+  mealName: "湯包",
+  mealType: "綜合餐",
+  estimatedCalories: 500,
+  estimatedProtein: 20,
+  tags: ["綜合餐"],
+  mainIngredients: ["主要食材待確認"],
+  allergens: [],
+  recommendationReason: "系統已根據候選餐點與可見食材特徵重新校正辨識結果。",
+  confidence: 0.95,
+  sourceType: "image",
+  createdAt: "2026-06-13T00:00:00+00:00",
+  isAiGenerated: true,
+}
+
 const cinnamonRollMeal: BackendMeal = {
   id: "url-cinnamon",
   mealName: "肉桂捲",
@@ -448,7 +464,7 @@ describe("App", () => {
     )
     expect(JSON.parse(String(recommendCall?.[1]?.body)).excludedIngredients).toContain("豬肉")
     expect(
-      await screen.findByText("目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。"),
+      await screen.findByText("目前沒有符合條件的完整餐點資料，請調整條件或補充餐點資訊。"),
     ).toBeInTheDocument()
   })
 
@@ -468,7 +484,7 @@ describe("App", () => {
     )
     expect(JSON.parse(String(recommendCall?.[1]?.body)).excludedIngredients).toContain("肉類")
     expect(
-      await screen.findByText("目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。"),
+      await screen.findByText("目前沒有符合條件的完整餐點資料，請調整條件或補充餐點資訊。"),
     ).toBeInTheDocument()
   })
 
@@ -563,8 +579,37 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
 
     expect(
-      await screen.findByText("目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。"),
+      await screen.findByText("目前沒有符合條件的完整餐點資料，請調整條件或補充餐點資訊。"),
     ).toBeInTheDocument()
+  })
+
+  test("does not render incomplete recommendation cards as normal results", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/recommend")) return jsonResponse([incompleteMeal])
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    const results = screen.getByLabelText("推薦清單")
+    await screen.findByText("目前沒有符合條件的完整餐點資料，請調整條件或補充餐點資訊。")
+    expect(within(results).queryByText("湯包")).not.toBeInTheDocument()
   })
 
   test("adds query history after searching", async () => {
