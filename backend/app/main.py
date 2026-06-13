@@ -64,7 +64,8 @@ def health() -> dict[str, object]:
 def analyze_text(request: TextAnalyzeRequest) -> MealAnalysisResult:
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="\u6587\u5b57\u63cf\u8ff0\u4e0d\u53ef\u70ba\u7a7a\u3002")
-    return normalize_and_enrich_result(openai_meal_analyzer.analyze_text(request.content), original_text=request.content)
+    content = _with_constraint_context(request.content, request.excludedIngredients)
+    return normalize_and_enrich_result(openai_meal_analyzer.analyze_text(content), original_text=content)
 
 
 @app.post("/api/analyze/image", response_model=MealAnalysisResult)
@@ -72,10 +73,12 @@ async def analyze_image(
     file: UploadFile = File(...),
     text: str = Form(""),
     description: str = Form(""),
+    excludedIngredients: str = Form(""),
 ) -> MealAnalysisResult:
     if not file.filename:
         raise HTTPException(status_code=400, detail="\u8acb\u4e0a\u50b3\u9910\u9ede\u5716\u7247\u3002")
-    hint = (text or description).strip()
+    constraints = _parse_form_constraints(excludedIngredients)
+    hint = _with_constraint_context((text or description).strip(), constraints)
     original_text = f"{hint} {file.filename}".strip()
     return normalize_and_enrich_result(
         await openai_meal_analyzer.analyze_image(file, hint=hint),
@@ -88,7 +91,12 @@ async def analyze_url(request: UrlAnalyzeRequest) -> MealAnalysisResult:
     url = str(request.url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="\u9910\u9ede\u9023\u7d50\u4e0d\u53ef\u70ba\u7a7a\u3002")
-    return normalize_and_enrich_result(await openai_meal_analyzer.analyze_url(url), original_text=url)
+    constraint_context = _constraint_context(request.excludedIngredients)
+    original_text = _with_constraint_context(url, request.excludedIngredients)
+    return normalize_and_enrich_result(
+        await openai_meal_analyzer.analyze_url(url, constraint_context=constraint_context),
+        original_text=original_text,
+    )
 
 
 @app.get("/api/meals", response_model=list[MealAnalysisResult])
@@ -108,4 +116,36 @@ def recommend(request: RecommendRequest) -> list[MealAnalysisResult]:
         tags=request.tags,
         excluded_ingredients=request.excludedIngredients,
         keyword=request.keyword,
+    )
+
+
+def _parse_form_constraints(raw: str) -> list[str]:
+    value = raw.strip()
+    if not value:
+        return []
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(payload, list):
+        return [str(item).strip() for item in payload if str(item).strip()]
+    return []
+
+
+def _with_constraint_context(text: str, excluded_ingredients: list[str]) -> str:
+    context = _constraint_context(excluded_ingredients)
+    if not context:
+        return text
+    return f"{text}\n\n{context}"
+
+
+def _constraint_context(excluded_ingredients: list[str]) -> str:
+    constraints = [item.strip() for item in excluded_ingredients if item.strip()]
+    if not constraints:
+        return ""
+    constraint_text = "\u3001".join(constraints)
+    return (
+        f"\u4f7f\u7528\u8005\u7981\u5fcc\u6216\u904e\u654f\u689d\u4ef6\uff1a{constraint_text}\n"
+        "\u8acb\u6aa2\u67e5\u9910\u9ede\u662f\u5426\u53ef\u80fd\u5305\u542b\u9019\u4e9b\u689d\u4ef6\u3002"
+        "\u82e5\u4e0d\u78ba\u5b9a\uff0c\u8acb\u964d\u4f4e\u4fe1\u5fc3\u5206\u6578\u4e26\u63d0\u9192\u4f7f\u7528\u8005\u78ba\u8a8d\u5be6\u969b\u6210\u5206\u3002"
     )

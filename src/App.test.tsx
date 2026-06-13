@@ -130,6 +130,12 @@ function jsonResponse(payload: unknown, init?: ResponseInit) {
   })
 }
 
+function delayedJsonResponse(payload: unknown, delay = 50) {
+  return new Promise<Response>((resolve) => {
+    window.setTimeout(() => resolve(jsonResponse(payload)), delay)
+  })
+}
+
 function mockOnlineApi() {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -152,6 +158,7 @@ function mockOnlineApi() {
       const body = JSON.parse(String(init?.body))
       if (body.keyword === "不存在的餐點") return jsonResponse([])
       if (body.excludedIngredients?.includes("豬肉")) return jsonResponse([])
+      if (body.excludedIngredients?.includes("肉類")) return jsonResponse([])
       if (body.excludedIngredients?.includes("海鮮")) return jsonResponse([backendMeals[0]])
       return jsonResponse([backendMeals[0]])
     }
@@ -228,6 +235,42 @@ describe("App", () => {
     expect(await screen.findByLabelText("AI 分析結果")).toBeInTheDocument()
   })
 
+  test("shows explicit loading state while AI analysis is running", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/analyze/text") && init?.method === "POST") {
+          return delayedJsonResponse(analysisMeal)
+        }
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "茶葉蛋")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    const loadingButton = screen.getByRole("button", { name: "分析中..." })
+    expect(loadingButton).toBeDisabled()
+    expect(screen.getByText("系統正在分析餐點，請稍候...")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText("系統正在分析餐點，請稍候...")).not.toBeInTheDocument(),
+    )
+    expect(await screen.findByLabelText("AI 分析結果")).toBeInTheDocument()
+  })
+
   test("analyzes with only image upload", async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -257,6 +300,25 @@ describe("App", () => {
     expect(imageCall?.[1]?.body).toBeInstanceOf(FormData)
     expect((imageCall?.[1]?.body as FormData).get("text")).toBe("小籠包")
     expect((imageCall?.[1]?.body as FormData).get("description")).toBe("小籠包")
+  })
+
+  test("sends selected custom avoid ingredients to AI analysis requests", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.type(screen.getByLabelText("自訂禁忌食材"), "不吃辣")
+    await user.click(screen.getByRole("button", { name: "新增禁忌食材" }))
+    await user.click(screen.getByLabelText("不吃辣"))
+    await user.type(screen.getByLabelText("文字描述"), "麻辣豆腐")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    await screen.findByLabelText("AI 分析結果")
+    const analyzeCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/analyze/text"),
+    )
+    expect(JSON.parse(String(analyzeCall?.[1]?.body)).excludedIngredients).toContain("不吃辣")
   })
 
   test("analyzes with only URL input and displays backend recommendation categories", async () => {
@@ -388,6 +450,96 @@ describe("App", () => {
     expect(
       await screen.findByText("目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。"),
     ).toBeInTheDocument()
+  })
+
+  test("sends custom meat category exclusion in recommendation payload", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.type(screen.getByLabelText("自訂禁忌食材"), "肉類")
+    await user.click(screen.getByRole("button", { name: "新增禁忌食材" }))
+    await user.click(screen.getByLabelText("肉類"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    const recommendCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/recommend"),
+    )
+    expect(JSON.parse(String(recommendCall?.[1]?.body)).excludedIngredients).toContain("肉類")
+    expect(
+      await screen.findByText("目前沒有符合條件的餐點，請調整飲食標籤或移除部分禁忌食材。"),
+    ).toBeInTheDocument()
+  })
+
+  test("sends meat and seafood exclusions when vegetarian tag is selected", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.click(screen.getByLabelText("素食"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    const recommendCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/recommend"),
+    )
+    const payload = JSON.parse(String(recommendCall?.[1]?.body))
+    expect(payload.tags).toContain("素食")
+    expect(payload.excludedIngredients).toContain("肉類")
+    expect(payload.excludedIngredients).toContain("海鮮")
+  })
+
+  test("offline local recommendation also excludes meat category constraints", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("offline"))),
+    )
+    render(<App />)
+
+    await screen.findByText(/目前使用離線展示資料/)
+    await user.type(screen.getByLabelText("自訂禁忌食材"), "肉類")
+    await user.click(screen.getByRole("button", { name: "新增禁忌食材" }))
+    await user.click(screen.getByLabelText("肉類"))
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    const results = screen.getByLabelText("推薦清單")
+    await waitFor(() => expect(within(results).queryByText("雞胸肉便當")).not.toBeInTheDocument())
+    expect(within(results).queryByText("牛肉蔬菜飯")).not.toBeInTheDocument()
+  })
+
+  test("shows explicit loading state while recommendation is running", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/recommend")) return delayedJsonResponse([backendMeals[0]])
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+
+    const loadingButton = screen.getByRole("button", { name: "篩選中..." })
+    expect(loadingButton).toBeDisabled()
+    expect(screen.getByText("正在根據條件篩選餐點...")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText("正在根據條件篩選餐點...")).not.toBeInTheDocument(),
+    )
+    expect(await screen.findByLabelText("最近查詢紀錄")).toBeInTheDocument()
   })
 
   test("excludes seafood meals through mocked recommendation API", async () => {

@@ -8,7 +8,39 @@ from app.models import MealAnalysisResult
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 MEALS_FILE = DATA_DIR / "meals.json"
 
-EXCLUSION_SYNONYMS: dict[str, list[str]] = {
+CATEGORY_SYNONYMS: dict[str, list[str]] = {
+    "\u8089\u985e": [
+        "\u8089\u985e",
+        "\u8089",
+        "\u8c6c\u8089",
+        "\u8c6c\u8089\u7247",
+        "\u8c5a\u8089",
+        "\u8c5a",
+        "\u8c6c\u6392",
+        "\u70b8\u8c6c\u6392",
+        "\u6392\u9aa8",
+        "\u8089\u71e5",
+        "\u53c9\u71d2",
+        "\u57f9\u6839",
+        "\u706b\u817f",
+        "\u9999\u8178",
+        "\u725b\u8089",
+        "\u725b\u8089\u7247",
+        "\u725b\u6392",
+        "\u725b\u4e3c",
+        "\u725b\u8169",
+        "\u96de\u8089",
+        "\u96de\u80f8",
+        "\u96de\u80f8\u8089",
+        "\u96de\u817f",
+        "\u96de\u6392",
+        "\u70b8\u96de",
+        "\u96de\u584a",
+        "\u9d28\u8089",
+        "\u9d28\u80f8",
+        "\u7f8a\u8089",
+        "\u7f8a\u6392",
+    ],
     "\u8c6c\u8089": [
         "\u8c6c\u8089",
         "\u8c6c\u8089\u7247",
@@ -16,6 +48,7 @@ EXCLUSION_SYNONYMS: dict[str, list[str]] = {
         "\u8c5a",
         "\u8c6c\u6392",
         "\u70b8\u8c6c\u6392",
+        "\u6392\u9aa8",
         "\u53c9\u71d2",
         "\u57f9\u6839",
         "\u706b\u817f",
@@ -23,7 +56,15 @@ EXCLUSION_SYNONYMS: dict[str, list[str]] = {
         "\u8089\u71e5",
     ],
     "\u725b\u8089": ["\u725b\u8089", "\u725b\u8089\u7247", "\u725b\u6392", "\u725b\u4e3c", "\u725b\u8169"],
-    "\u96de\u8089": ["\u96de\u8089", "\u96de\u80f8", "\u96de\u817f", "\u96de\u6392", "\u70b8\u96de", "\u96de\u584a"],
+    "\u96de\u8089": [
+        "\u96de\u8089",
+        "\u96de\u80f8",
+        "\u96de\u80f8\u8089",
+        "\u96de\u817f",
+        "\u96de\u6392",
+        "\u70b8\u96de",
+        "\u96de\u584a",
+    ],
     "\u6d77\u9bae": [
         "\u6d77\u9bae",
         "\u8766",
@@ -32,7 +73,19 @@ EXCLUSION_SYNONYMS: dict[str, list[str]] = {
         "\u82b1\u679d",
         "\u9b77\u9b5a",
         "\u87f9",
+        "\u7261\u8823",
+        "\u86e4\u870a",
         "\u8c9d\u985e",
+    ],
+    "\u7532\u6bbc\u985e": ["\u8766", "\u87f9", "\u9f8d\u8766", "\u8783\u87f9"],
+    "\u5805\u679c": [
+        "\u5805\u679c",
+        "\u82b1\u751f",
+        "\u674f\u4ec1",
+        "\u8170\u679c",
+        "\u6838\u6843",
+        "\u958b\u5fc3\u679c",
+        "\u699b\u679c",
     ],
     "\u82b1\u751f": ["\u82b1\u751f", "\u82b1\u751f\u7c89", "\u82b1\u751f\u91ac"],
     "\u4e73\u88fd\u54c1": [
@@ -42,6 +95,7 @@ EXCLUSION_SYNONYMS: dict[str, list[str]] = {
         "\u8d77\u53f8",
         "\u4e73\u916a",
         "\u9bae\u5976\u6cb9",
+        "\u5976\u7cbe",
     ],
     "\u9ea9\u8cea": [
         "\u9ea9\u8cea",
@@ -52,7 +106,25 @@ EXCLUSION_SYNONYMS: dict[str, list[str]] = {
         "\u9eb5\u8863",
         "\u9eb5\u5305\u7c89",
     ],
+    "\u86cb": ["\u86cb", "\u96de\u86cb", "\u86cb\u6db2", "\u86cb\u9ec3", "\u86cb\u767d"],
+    "\u9152\u7cbe": ["\u9152", "\u9152\u7cbe", "\u7c73\u9152", "\u6599\u7406\u9152", "\u5564\u9152", "\u7d05\u9152", "\u767d\u9152"],
+    "\u8f9b\u8fa3": ["\u8fa3", "\u8fa3\u6912", "\u9ebb\u8fa3", "\u5fae\u8fa3", "\u8f9b\u8fa3", "\u80e1\u6912"],
 }
+EXCLUSION_SYNONYMS = CATEGORY_SYNONYMS
+
+CONSTRAINT_WORDS = [
+    "\u4e0d\u53ef\u4ee5\u5403",
+    "\u4e0d\u80fd\u5403",
+    "\u4e0d\u8981\u5403",
+    "\u4e0d\u5403",
+    "\u4e0d\u8981",
+    "\u907f\u514d",
+    "\u5c0d",
+    "\u904e\u654f",
+    "\u7981\u5fcc",
+    "\u7121",
+]
+SAFE_SHORT_TERMS = {"\u86cb", "\u8fa3", "\u9152", "\u8089"}
 
 _lock = Lock()
 
@@ -91,11 +163,14 @@ def recommend_meals(
     keyword: str | None,
 ) -> list[MealAnalysisResult]:
     normalized_keyword = (keyword or "").strip().lower()
+    effective_excluded = list(excluded_ingredients)
+    if "\u7d20\u98df" in tags:
+        effective_excluded.extend(["\u8089\u985e", "\u6d77\u9bae"])
 
     results: list[MealAnalysisResult] = []
     for meal in load_meals():
         searchable_text = _meal_search_text(meal)
-        if ingredient_matches_exclusion(searchable_text, excluded_ingredients):
+        if ingredient_matches_exclusion(searchable_text, effective_excluded):
             continue
 
         matches_goal = _matches_health_goal(meal, health_goal)
@@ -111,19 +186,39 @@ def recommend_meals(
 def normalize_avoid_ingredients(avoid_ingredients: list[str]) -> set[str]:
     terms: set[str] = set()
     for ingredient in avoid_ingredients:
-        normalized = ingredient.strip()
+        normalized = normalize_avoid_term(ingredient)
         if not normalized:
             continue
-        terms.add(normalized)
-        for canonical, synonyms in EXCLUSION_SYNONYMS.items():
+        terms.update({ingredient.strip(), normalized})
+        for canonical, synonyms in CATEGORY_SYNONYMS.items():
             if normalized == canonical or normalized in synonyms or canonical in normalized:
                 terms.update(synonyms)
+                terms.add(canonical)
     return terms
+
+
+def normalize_avoid_term(raw: str) -> str:
+    normalized = raw.strip()
+    for word in CONSTRAINT_WORDS:
+        normalized = normalized.replace(word, "")
+    return normalized.strip(" ：:，,。.;；、\t\r\n")
 
 
 def ingredient_matches_exclusion(food_text: str, excluded: list[str]) -> bool:
     normalized_food_text = food_text.lower()
-    return any(term.lower() in normalized_food_text for term in normalize_avoid_ingredients(excluded))
+    return any(
+        _term_matches_food_text(normalized_food_text, term)
+        for term in normalize_avoid_ingredients(excluded)
+    )
+
+
+def _term_matches_food_text(food_text: str, term: str) -> bool:
+    normalized = term.strip().lower()
+    if not normalized:
+        return False
+    if len(normalized) < 2 and normalized not in SAFE_SHORT_TERMS:
+        return False
+    return normalized in food_text
 
 
 def _meal_search_text(meal: MealAnalysisResult) -> str:

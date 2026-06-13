@@ -44,15 +44,78 @@ const defaultGoal: HealthGoal = "均衡飲食"
 const customDietTagsKey = "smartDiet.customDietTags"
 const customAvoidIngredientsKey = "smartDiet.customAvoidIngredients"
 const maxCustomItems = 20
-const exclusionSynonyms: Record<string, string[]> = {
-  豬肉: ["豬肉", "豬肉片", "豚肉", "豚", "豬排", "炸豬排", "叉燒", "培根", "火腿", "香腸", "肉燥"],
+const categorySynonyms: Record<string, string[]> = {
+  肉類: [
+    "肉類",
+    "肉",
+    "豬肉",
+    "豬肉片",
+    "豚肉",
+    "豚",
+    "豬排",
+    "炸豬排",
+    "排骨",
+    "肉燥",
+    "叉燒",
+    "培根",
+    "火腿",
+    "香腸",
+    "牛肉",
+    "牛肉片",
+    "牛排",
+    "牛丼",
+    "牛腩",
+    "雞肉",
+    "雞胸",
+    "雞胸肉",
+    "雞腿",
+    "雞排",
+    "炸雞",
+    "雞塊",
+    "鴨肉",
+    "鴨胸",
+    "羊肉",
+    "羊排",
+  ],
+  豬肉: [
+    "豬肉",
+    "豬肉片",
+    "豚肉",
+    "豚",
+    "豬排",
+    "炸豬排",
+    "排骨",
+    "叉燒",
+    "培根",
+    "火腿",
+    "香腸",
+    "肉燥",
+  ],
   牛肉: ["牛肉", "牛肉片", "牛排", "牛丼", "牛腩"],
-  雞肉: ["雞肉", "雞胸", "雞腿", "雞排", "炸雞", "雞塊"],
-  海鮮: ["海鮮", "蝦", "蝦仁", "魚", "花枝", "魷魚", "蟹", "貝類"],
+  雞肉: ["雞肉", "雞胸", "雞胸肉", "雞腿", "雞排", "炸雞", "雞塊"],
+  海鮮: ["海鮮", "蝦", "蝦仁", "魚", "花枝", "魷魚", "蟹", "牡蠣", "蛤蜊", "貝類"],
+  甲殼類: ["蝦", "蟹", "龍蝦", "螃蟹"],
+  堅果: ["堅果", "花生", "杏仁", "腰果", "核桃", "開心果", "榛果"],
   花生: ["花生", "花生粉", "花生醬"],
-  乳製品: ["乳製品", "牛奶", "奶油", "起司", "乳酪", "鮮奶油"],
+  乳製品: ["乳製品", "牛奶", "奶油", "起司", "乳酪", "鮮奶油", "奶精"],
   麩質: ["麩質", "小麥", "麵粉", "麵皮", "麵條", "麵衣", "麵包粉"],
+  蛋: ["蛋", "雞蛋", "蛋液", "蛋黃", "蛋白"],
+  酒精: ["酒", "酒精", "米酒", "料理酒", "啤酒", "紅酒", "白酒"],
+  辛辣: ["辣", "辣椒", "麻辣", "微辣", "辛辣", "胡椒"],
 }
+const constraintWords = [
+  "不可以吃",
+  "不能吃",
+  "不要吃",
+  "不吃",
+  "不要",
+  "避免",
+  "對",
+  "過敏",
+  "禁忌",
+  "無",
+]
+const safeShortTerms = new Set(["蛋", "辣", "酒", "肉"])
 
 function toggleValue<T>(values: T[], value: T) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
@@ -97,18 +160,46 @@ function validateCustomItem(value: string, existing: string[], label: string) {
   return { value: trimmed, error: "" }
 }
 
+function normalizeUserConstraint(raw: string) {
+  return constraintWords
+    .reduce((value, word) => value.replaceAll(word, ""), raw.trim())
+    .replace(/^[\s：:，,。.;；、]+|[\s：:，,。.;；、]+$/g, "")
+}
+
 function normalizeAvoidTerms(values: string[]) {
   const terms = new Set<string>()
   values.forEach((value) => {
-    const trimmed = value.trim()
-    if (!trimmed) return
-    terms.add(trimmed)
-    Object.entries(exclusionSynonyms).forEach(([canonical, synonyms]) => {
-      if (trimmed === canonical || synonyms.includes(trimmed) || trimmed.includes(canonical)) {
+    const normalized = normalizeUserConstraint(value)
+    if (!normalized) return
+    terms.add(value.trim())
+    terms.add(normalized)
+    Object.entries(categorySynonyms).forEach(([canonical, synonyms]) => {
+      if (
+        normalized === canonical ||
+        synonyms.includes(normalized) ||
+        normalized.includes(canonical)
+      ) {
         synonyms.forEach((synonym) => terms.add(synonym))
+        terms.add(canonical)
       }
     })
   })
+  return [...terms]
+}
+
+function termMatchesFoodText(searchableText: string, term: string) {
+  const normalized = term.trim().toLowerCase()
+  if (!normalized) return false
+  if (normalized.length < 2 && !safeShortTerms.has(normalized)) return false
+  return searchableText.includes(normalized)
+}
+
+function getEffectiveExcludedIngredients(selectedTags: string[], excludedAllergens: string[]) {
+  const terms = new Set(excludedAllergens)
+  if (selectedTags.includes("素食")) {
+    terms.add("肉類")
+    terms.add("海鮮")
+  }
   return [...terms]
 }
 
@@ -121,7 +212,10 @@ function mealMatchesExclusion(meal: Meal, excludedAllergens: string[]) {
     ...meal.ingredients,
     ...meal.allergens,
   ].join(" ")
-  return normalizeAvoidTerms(excludedAllergens).some((term) => searchableText.includes(term))
+  const normalizedSearchableText = searchableText.toLowerCase()
+  return normalizeAvoidTerms(excludedAllergens).some((term) =>
+    termMatchesFoodText(normalizedSearchableText, term),
+  )
 }
 
 function filterLocalMeals(
@@ -132,10 +226,14 @@ function filterLocalMeals(
   keyword: string,
 ) {
   const normalizedKeyword = keyword.trim().toLowerCase()
+  const effectiveExcludedAllergens = getEffectiveExcludedIngredients(
+    selectedTags,
+    excludedAllergens,
+  )
   return mealDataset.filter((meal) => {
     const matchesGoal = meal.goals.includes(goal)
     const matchesTags = selectedTags.every((tag) => meal.tags.includes(tag))
-    const avoidsAllergens = !mealMatchesExclusion(meal, excludedAllergens)
+    const avoidsAllergens = !mealMatchesExclusion(meal, effectiveExcludedAllergens)
     const matchesKeyword =
       normalizedKeyword.length === 0 ||
       [meal.name, meal.type, meal.reason, ...meal.tags, ...meal.ingredients, ...meal.allergens]
@@ -316,6 +414,7 @@ export function App() {
   const [analysisMessage, setAnalysisMessage] = useState("")
   const [analysisError, setAnalysisError] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isRecommending, setIsRecommending] = useState(false)
 
   useEffect(() => {
     async function loadBackendData() {
@@ -414,12 +513,16 @@ export function App() {
 
     try {
       let result: Meal
+      const effectiveExcludedAllergens = getEffectiveExcludedIngredients(
+        selectedTags,
+        excludedAllergens,
+      )
       if (trimmedLink) {
-        result = await analyzeUrl(trimmedLink)
+        result = await analyzeUrl(trimmedLink, effectiveExcludedAllergens)
       } else if (imageFile) {
-        result = await analyzeImage(imageFile, trimmedDescription)
+        result = await analyzeImage(imageFile, trimmedDescription, effectiveExcludedAllergens)
       } else {
-        result = await analyzeText(trimmedDescription)
+        result = await analyzeText(trimmedDescription, effectiveExcludedAllergens)
       }
       setAnalysisResult(result)
       setAnalysisMessage("AI 分析完成，可加入餐點資料集。")
@@ -446,21 +549,29 @@ export function App() {
 
   const handleRecommend = async () => {
     setHasSearched(true)
+    setIsRecommending(true)
     let results = localRecommendation
+    const effectiveExcludedAllergens = getEffectiveExcludedIngredients(
+      selectedTags,
+      excludedAllergens,
+    )
 
-    if (!isOfflineMode) {
-      try {
+    try {
+      if (!isOfflineMode) {
         results = await recommendMeals({
           healthGoal: goal,
           tags: selectedTags,
-          excludedIngredients: excludedAllergens,
+          excludedIngredients: effectiveExcludedAllergens,
           keyword: keyword.trim() || null,
         })
         setBackendError("")
-      } catch {
-        setBackendError("AI 後端尚未啟動，請先啟動 FastAPI server。")
-        setIsOfflineMode(true)
       }
+    } catch {
+      setBackendError("AI 後端尚未啟動，請先啟動 FastAPI server。")
+      setIsOfflineMode(true)
+      results = localRecommendation
+    } finally {
+      setIsRecommending(false)
     }
 
     setRecommendedMeals(results)
@@ -603,13 +714,24 @@ export function App() {
               />
             </label>
             <button
-              className="primary-action recommend-button"
+              className={`primary-action recommend-button${isAnalyzing ? " button-loading" : ""}`}
               onClick={handleAnalyzeMeal}
               disabled={isAnalyzing}
             >
               {isAnalyzing ? "分析中..." : "AI 分析餐點"}
             </button>
-            {analysisMessage ? <p className="status-message">{analysisMessage}</p> : null}
+            {isAnalyzing ? (
+              <div className="loading-card" role="status" aria-live="polite">
+                <span className="loading-spinner" aria-hidden="true" />
+                <div>
+                  <strong>系統正在分析餐點，請稍候...</strong>
+                  <p>正在整理餐點名稱、主要食材與營養估算。</p>
+                </div>
+              </div>
+            ) : null}
+            {!isAnalyzing && analysisMessage ? (
+              <p className="status-message">{analysisMessage}</p>
+            ) : null}
             {analysisError ? <p className="error-message">{analysisError}</p> : null}
 
             {analysisResult ? (
@@ -697,9 +819,22 @@ export function App() {
               onDelete={deleteCustomAvoidIngredient}
             />
 
-            <button className="primary-action recommend-button" onClick={handleRecommend}>
-              搜尋 / 推薦
+            <button
+              className={`primary-action recommend-button${isRecommending ? " button-loading" : ""}`}
+              onClick={handleRecommend}
+              disabled={isRecommending}
+            >
+              {isRecommending ? "篩選中..." : "搜尋 / 推薦"}
             </button>
+            {isRecommending ? (
+              <div className="loading-card" role="status" aria-live="polite">
+                <span className="loading-spinner" aria-hidden="true" />
+                <div>
+                  <strong>正在根據條件篩選餐點...</strong>
+                  <p>禁忌食材會優先作為硬性排除條件。</p>
+                </div>
+              </div>
+            ) : null}
           </div>
         </section>
 

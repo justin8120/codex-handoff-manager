@@ -201,7 +201,7 @@ async def analyze_image(file: UploadFile, hint: str = "") -> MealAnalysisResult:
     )
 
 
-async def analyze_url(url: str) -> MealAnalysisResult:
+async def analyze_url(url: str, constraint_context: str = "") -> MealAnalysisResult:
     slug_result = _url_slug_result(url)
     if slug_result:
         return slug_result
@@ -211,7 +211,10 @@ async def analyze_url(url: str) -> MealAnalysisResult:
         if fallback_enabled():
             return _uncertain_url_result(url, confidence=0.35)
         raise HTTPException(status_code=502, detail=f"URL fetch failed: {error}") from error
-    result = _safe_analyze("url", text=f"URL: {url}\nExtracted content:\n{summary}")
+    analysis_text = f"URL: {url}\nExtracted content:\n{summary}"
+    if constraint_context.strip():
+        analysis_text = f"{analysis_text}\n\n{constraint_context.strip()}"
+    result = _safe_analyze("url", text=analysis_text)
     if result.sourceType != "url":
         return result.model_copy(update={"sourceType": "url"})
     return result

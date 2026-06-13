@@ -98,20 +98,30 @@ export async function fetchMeals(): Promise<Meal[]> {
   return payload.map(backendMealToMeal)
 }
 
-export async function analyzeText(description: string): Promise<Meal> {
+export async function analyzeText(
+  description: string,
+  excludedIngredients: Allergen[] = [],
+): Promise<Meal> {
   const payload = await request<BackendMeal>("/api/analyze/text", {
     method: "POST",
-    body: JSON.stringify({ description }),
+    body: JSON.stringify({ description, excludedIngredients }),
   })
   return backendMealToMeal(payload)
 }
 
-export async function analyzeImage(file: File, description = ""): Promise<Meal> {
+export async function analyzeImage(
+  file: File,
+  description = "",
+  excludedIngredients: Allergen[] = [],
+): Promise<Meal> {
   const formData = new FormData()
   formData.append("file", file)
   if (description.trim()) {
     formData.append("text", description.trim())
     formData.append("description", description.trim())
+  }
+  if (excludedIngredients.length > 0) {
+    formData.append("excludedIngredients", JSON.stringify(excludedIngredients))
   }
   const payload = await request<BackendMeal>("/api/analyze/image", {
     method: "POST",
@@ -120,10 +130,10 @@ export async function analyzeImage(file: File, description = ""): Promise<Meal> 
   return backendMealToMeal(payload)
 }
 
-export async function analyzeUrl(url: string): Promise<Meal> {
+export async function analyzeUrl(url: string, excludedIngredients: Allergen[] = []): Promise<Meal> {
   const payload = await request<BackendMeal>("/api/analyze/url", {
     method: "POST",
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, excludedIngredients }),
   })
   return backendMealToMeal(payload)
 }

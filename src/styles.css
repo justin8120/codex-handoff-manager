@@ -320,6 +320,36 @@ h3 {
   background: #fff0f2;
 }
 
+.loading-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #bfd7cc;
+  border-radius: 8px;
+  color: #24344a;
+  background: #ecf8f2;
+}
+
+.loading-card p {
+  margin-top: 3px;
+  color: #607086;
+}
+
+.loading-spinner {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 3px solid #bfd7cc;
+  border-top-color: #218057;
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+}
+
+.button-loading {
+  cursor: wait;
+}
+
 .analysis-result {
   display: grid;
   gap: 12px;
@@ -448,6 +478,12 @@ fieldset {
 .recommend-button:disabled {
   cursor: wait;
   opacity: 0.7;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .meal-grid,

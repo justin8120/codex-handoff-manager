@@ -26,6 +26,7 @@ class MealAnalysisResult(BaseModel):
 class TextAnalyzeRequest(BaseModel):
     description: str | None = None
     text: str | None = None
+    excludedIngredients: list[str] = Field(default_factory=list)
 
     @property
     def content(self) -> str:
@@ -34,6 +35,7 @@ class TextAnalyzeRequest(BaseModel):
 
 class UrlAnalyzeRequest(BaseModel):
     url: str | None = None
+    excludedIngredients: list[str] = Field(default_factory=list)
 
 
 class RecommendRequest(BaseModel):
