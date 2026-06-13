@@ -723,7 +723,7 @@ describe("App", () => {
         }
         if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
         if (url.endsWith("/api/analyze/text") && init?.method === "POST") {
-          return delayedJsonResponse(analysisMeal)
+          return delayedJsonResponse(analysisMeal, 300)
         }
         return jsonResponse({ detail: "Not found" }, { status: 404 })
       }),
@@ -855,59 +855,73 @@ describe("App", () => {
     expect(JSON.parse(String(recommendCall?.[1]?.body)).tags).toContain("少油")
   })
 
-  test("does not call nearby API when geolocation is denied", async () => {
+  test("expands and collapses mock nearby places on an individual meal card", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn(mockOnlineApi())
     vi.stubGlobal("fetch", fetchMock)
-    Object.defineProperty(navigator, "geolocation", {
-      configurable: true,
-      value: {
-        getCurrentPosition: vi.fn((_success, error) => error()),
-      },
-    })
     render(<App />)
 
-    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
-    await user.click(await screen.findByRole("button", { name: "查看附近店家" }))
+    await screen.findByText(/Provider/)
+    const nearbyButtonName = "\u67e5\u770b\u9644\u8fd1\u5e97\u5bb6"
+    const healthyStoreName = "\u6e2c\u8a66\u5065\u5eb7\u9910\u5e97"
+    const lunchboxStoreName = "\u6e2c\u8a66\u4fbf\u7576\u5e97"
+    const buttons = await screen.findAllByRole("button", { name: nearbyButtonName })
 
-    expect(await screen.findByText("啟用定位以查看附近類似店家")).toBeInTheDocument()
+    expect(buttons.length).toBeGreaterThan(0)
+
+    await user.click(buttons[0])
+
+    expect(await screen.findByText(/Google Places/)).toBeInTheDocument()
+    expect(screen.getByText(healthyStoreName)).toBeInTheDocument()
+    expect(screen.getByText(lunchboxStoreName)).toBeInTheDocument()
     expect(
       fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/nearby-places")),
     ).toBe(false)
+
+    await user.click(buttons[0])
+    expect(screen.queryByText(healthyStoreName)).not.toBeInTheDocument()
   })
 
-  test("fetches nearby places with geolocation and displays place cards", async () => {
+  test("uses ice cream mock places for dessert meal cards", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn(mockOnlineApi())
     vi.stubGlobal("fetch", fetchMock)
-    Object.defineProperty(navigator, "geolocation", {
-      configurable: true,
-      value: {
-        getCurrentPosition: vi.fn((success) =>
-          success({ coords: { latitude: 25.033, longitude: 121.5654 } }),
-        ),
-      },
-    })
+    window.localStorage.setItem(
+      "smartDiet.localUserMeals",
+      JSON.stringify([
+        backendMealToMeal({
+          ...cinnamonRollMeal,
+          id: "local-ice-cream",
+          mealName: "\u675c\u8001\u723a\u51b0\u54c1",
+          mealType: "\u51b0\u54c1 / \u751c\u9ede",
+          tags: ["\u51b0\u54c1", "\u751c\u9ede", "\u9ad8\u7cd6"],
+        }),
+      ]),
+    )
     render(<App />)
 
-    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
-    await user.click(await screen.findByRole("button", { name: "查看附近店家" }))
+    const dessertTitle = await screen.findByText("\u675c\u8001\u723a\u51b0\u54c1")
+    const dessertCard = dessertTitle.closest("article")
+    expect(dessertCard).not.toBeNull()
 
-    expect(await screen.findByText("附近健康餐盒")).toBeInTheDocument()
-    expect(screen.getByText("搜尋詞：健康餐 雞胸肉餐盒")).toBeInTheDocument()
-    expect(screen.getByText("320 m")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "開啟 Google Maps" })).toHaveAttribute(
-      "href",
-      "https://maps.google.com/?cid=123",
+    await user.click(
+      within(dessertCard as HTMLElement).getByRole("button", {
+        name: "\u67e5\u770b\u9644\u8fd1\u5e97\u5bb6",
+      }),
     )
-    const nearbyCall = fetchMock.mock.calls.find(([input]) =>
-      String(input).endsWith("/api/nearby-places"),
-    )
-    expect(JSON.parse(String(nearbyCall?.[1]?.body))).toMatchObject({
-      lat: 25.033,
-      lng: 121.5654,
-      mealName: "茶葉蛋",
-    })
+
+    expect(
+      within(dessertCard as HTMLElement).getByText("\u6e2c\u8a66\u51b0\u54c1\u5e97"),
+    ).toBeInTheDocument()
+    expect(
+      within(dessertCard as HTMLElement).getByText("\u6e2c\u8a66\u4fbf\u5229\u5546\u5e97"),
+    ).toBeInTheDocument()
+    expect(
+      within(dessertCard as HTMLElement).getByText("\u6e2c\u8a66\u8d85\u5e02"),
+    ).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/nearby-places")),
+    ).toBe(false)
   })
 
   test("rejects blank and duplicate custom diet tags", async () => {
@@ -1052,7 +1066,7 @@ describe("App", () => {
           })
         }
         if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
-        if (url.endsWith("/api/recommend")) return delayedJsonResponse([backendMeals[0]])
+        if (url.endsWith("/api/recommend")) return delayedJsonResponse([backendMeals[0]], 300)
         return jsonResponse({ detail: "Not found" }, { status: 404 })
       }),
     )

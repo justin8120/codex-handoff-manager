@@ -16,10 +16,8 @@ import {
   analyzeUrl,
   fetchHealth,
   fetchMeals,
-  fetchNearbyPlaces,
   recommendMeals,
   type BackendHealth,
-  type NearbyPlace,
 } from "./api"
 import {
   allergens,
@@ -568,7 +566,96 @@ function filterLocalMeals(
   })
 }
 
+type MockNearbyPlace = {
+  name: string
+  distance: string
+  rating: number
+  address: string
+  types: string[]
+}
+
+function isDessertNearbyMeal(meal: Meal) {
+  const profile = [meal.name, meal.type, ...meal.tags].join(" ")
+  return ["冰品", "甜點", "高糖", "杜老爺"].some((term) => profile.includes(term))
+}
+
+function mockNearbyPlacesForMeal(meal: Meal): MockNearbyPlace[] {
+  if (isDessertNearbyMeal(meal)) {
+    return [
+      {
+        name: "測試冰品店",
+        distance: "280m",
+        rating: 4.6,
+        address: "雲林縣虎尾鎮測試甜品路 1 號",
+        types: ["冰品", "甜點"],
+      },
+      {
+        name: "測試便利商店",
+        distance: "450m",
+        rating: 4.1,
+        address: "雲林縣虎尾鎮測試路 2 號",
+        types: ["便利商店", "冰品"],
+      },
+      {
+        name: "測試超市",
+        distance: "900m",
+        rating: 4.3,
+        address: "雲林縣虎尾鎮測試路 3 號",
+        types: ["超市", "包裝冰品"],
+      },
+    ]
+  }
+
+  return [
+    {
+      name: "測試健康餐店",
+      distance: "350m",
+      rating: 4.5,
+      address: "雲林縣虎尾鎮測試路 1 號",
+      types: ["健康餐", "便當"],
+    },
+    {
+      name: "測試便當店",
+      distance: "720m",
+      rating: 4.2,
+      address: "雲林縣虎尾鎮測試路 2 號",
+      types: ["餐盒", "便當"],
+    },
+  ]
+}
+
+function MockNearbyPanel({ meal }: { meal: Meal }) {
+  const mockPlaces = mockNearbyPlacesForMeal(meal)
+
+  return (
+    <div className="mock-nearby-panel" aria-label={`${meal.name} 附近類似店家`}>
+      <div className="mock-nearby-summary">
+        <strong>正在模擬查詢 Google Places：</strong>
+        <span>查詢餐點：{meal.name}</span>
+        <span>餐點類型：{meal.type}</span>
+        <span>標籤：{formatList(meal.tags)}</span>
+      </div>
+      <div>
+        <h4>附近類似店家</h4>
+        <ol className="mock-place-list">
+          {mockPlaces.map((place) => (
+            <li key={place.name}>
+              <strong>{place.name}</strong>
+              <span>距離：{place.distance}</span>
+              <span>評分：{place.rating}</span>
+              <span>地址：{place.address}</span>
+              <span>類型：{place.types.join(" / ")}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  )
+}
+
 function MealCard({ meal }: { meal: Meal }) {
+  const [showMockNearby, setShowMockNearby] = useState(false)
+
   return (
     <article className="meal-card">
       <div className="meal-card-header">
@@ -618,6 +705,14 @@ function MealCard({ meal }: { meal: Meal }) {
       {meal.warningMessage || meal.nutritionNote ? (
         <p className="source-note">{meal.warningMessage || meal.nutritionNote}</p>
       ) : null}
+      <button
+        className="utility-button nearby-toggle-button"
+        type="button"
+        onClick={() => setShowMockNearby((current) => !current)}
+      >
+        查看附近店家
+      </button>
+      {showMockNearby ? <MockNearbyPanel meal={meal} /> : null}
     </article>
   )
 }
@@ -711,7 +806,19 @@ function CustomChoiceGroup({
   )
 }
 
-function NearbyPlaceCard({ place }: { place: NearbyPlace }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function NearbyPlaceCard({
+  place,
+}: {
+  place: {
+    types: string[]
+    name: string
+    distanceMeters: number | null
+    rating: number | null
+    address: string
+    mapUrl: string
+  }
+}) {
   return (
     <article className="meal-card nearby-place-card">
       <div className="meal-card-header">
@@ -776,11 +883,6 @@ export function App() {
   const [analysisError, setAnalysisError] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isRecommending, setIsRecommending] = useState(false)
-  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([])
-  const [nearbyQuery, setNearbyQuery] = useState("")
-  const [nearbyMessage, setNearbyMessage] = useState("")
-  const [nearbyError, setNearbyError] = useState("")
-  const [isLoadingNearby, setIsLoadingNearby] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -984,10 +1086,6 @@ export function App() {
   const handleRecommend = async () => {
     setHasSearched(true)
     setIsRecommending(true)
-    setNearbyPlaces([])
-    setNearbyQuery("")
-    setNearbyMessage("")
-    setNearbyError("")
     let results = localRecommendation
     const effectiveExcludedAllergens = getEffectiveExcludedIngredients(
       selectedTags,
@@ -1024,46 +1122,6 @@ export function App() {
         },
         ...records,
       ].slice(0, 5),
-    )
-  }
-
-  const handleFetchNearbyPlaces = () => {
-    const targetMeal = completeRecommendedMeals[0]
-    if (!targetMeal) {
-      setNearbyError("請先產生推薦結果，再查看附近類似店家。")
-      return
-    }
-    if (!navigator.geolocation) {
-      setNearbyMessage("啟用定位以查看附近類似店家")
-      return
-    }
-    setNearbyError("")
-    setNearbyMessage("")
-    setIsLoadingNearby(true)
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const response = await fetchNearbyPlaces({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            mealName: targetMeal.name,
-            mealType: targetMeal.type,
-            tags: targetMeal.tags,
-          })
-          setNearbyPlaces(response.places)
-          setNearbyQuery(response.query)
-          setNearbyMessage(response.places.length === 0 ? "附近沒有找到類似店家。" : "")
-        } catch {
-          setNearbyError("目前無法取得附近店家，請稍後再試")
-        } finally {
-          setIsLoadingNearby(false)
-        }
-      },
-      () => {
-        setIsLoadingNearby(false)
-        setNearbyMessage("啟用定位以查看附近類似店家")
-      },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     )
   }
 
@@ -1356,32 +1414,6 @@ export function App() {
               <MealCard meal={meal} key={meal.id} />
             ))}
           </div>
-
-          {hasSearched && completeRecommendedMeals.length > 0 ? (
-            <div className="nearby-section" aria-label="附近類似店家">
-              <div className="section-heading compact-heading">
-                <div>
-                  <div className="eyebrow">Nearby Places</div>
-                  <h3>附近類似店家</h3>
-                </div>
-                <button
-                  className={`utility-button${isLoadingNearby ? " button-loading" : ""}`}
-                  onClick={handleFetchNearbyPlaces}
-                  disabled={isLoadingNearby}
-                >
-                  {isLoadingNearby ? "查詢中..." : "查看附近店家"}
-                </button>
-              </div>
-              {nearbyQuery ? <p className="helper-text">搜尋詞：{nearbyQuery}</p> : null}
-              {nearbyMessage ? <p className="status-message">{nearbyMessage}</p> : null}
-              {nearbyError ? <p className="error-message">{nearbyError}</p> : null}
-              <div className="meal-grid nearby-grid">
-                {nearbyPlaces.map((place) => (
-                  <NearbyPlaceCard place={place} key={`${place.name}-${place.address}`} />
-                ))}
-              </div>
-            </div>
-          ) : null}
         </section>
 
         <section className="section" id="meal-dataset">

@@ -513,6 +513,55 @@ fieldset {
   width: fit-content;
 }
 
+.nearby-toggle-button {
+  width: fit-content;
+}
+
+.mock-nearby-panel {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #2f4056;
+  border-radius: 8px;
+  background: rgba(20, 32, 45, 0.72);
+}
+
+.mock-nearby-panel h4 {
+  margin: 0 0 8px;
+  color: #f6f8fb;
+}
+
+.mock-nearby-summary {
+  display: grid;
+  gap: 4px;
+  color: #c9d4e5;
+}
+
+.mock-nearby-summary strong {
+  color: #f6f8fb;
+}
+
+.mock-place-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.mock-place-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #34475d;
+  border-radius: 8px;
+  color: #dbe5f2;
+  background: rgba(13, 22, 31, 0.82);
+}
+
+.mock-place-list strong {
+  color: #ffffff;
+}
+
 .meal-card {
   display: grid;
   gap: 14px;
