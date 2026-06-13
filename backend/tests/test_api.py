@@ -1445,6 +1445,32 @@ def test_mock_provider_applies_bento_chicken_beef_and_peanut_rules(monkeypatch):
     assert "\u5df2\u6839\u64da\u9700\u6c42\u6392\u9664\u725b\u8089" in payload["recommendationReason"]
 
 
+def test_structured_text_description_enriches_incomplete_analysis(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post(
+        "/api/analyze/text",
+        json={
+            "description": (
+                "餐點名稱：雞胸肉健康餐\n"
+                "主要食材：雞胸肉、黑米飯、花椰菜、毛豆、南瓜泥、彩椒、洋蔥\n"
+                "餐點類型：健康餐、便當、低油餐\n"
+                "飲食標籤：高蛋白、低脂、低油、蔬菜多、適合減脂"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "雞胸肉健康餐"
+    assert payload["mealType"] == "健康餐、便當、低油餐"
+    assert "黑米飯" in payload["mainIngredients"]
+    assert "毛豆" in payload["mainIngredients"]
+    assert len(payload["mainIngredients"]) >= 2
+    assert "低油" in payload["tags"]
+
+
 def test_fallback_response_is_ascii_escaped_json(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "mock")
     monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")

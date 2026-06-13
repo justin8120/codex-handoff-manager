@@ -425,6 +425,62 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "加入餐點資料集" })).not.toBeInTheDocument()
   })
 
+  test("uses structured text description to allow adding an otherwise incomplete analysis", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/analyze/text"))
+          return jsonResponse({
+            id: "partial-structured",
+            name: "",
+            type: "",
+            calories: 420,
+            protein: 32,
+            dietTags: [],
+            ingredients: ["主要食材待確認"],
+            allergens: [],
+            reason: "系統已根據輸入內容提供餐點健康建議。",
+            confidence: 0.4,
+            sourceType: "text",
+            createdAt: "2026-06-13T00:00:00+00:00",
+            isAiGenerated: true,
+          })
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.type(
+      screen.getByLabelText("文字描述"),
+      [
+        "餐點名稱：雞胸肉健康餐",
+        "主要食材：雞胸肉、黑米飯、花椰菜、毛豆、南瓜泥、彩椒、洋蔥",
+        "餐點類型：健康餐、便當、低油餐",
+        "飲食標籤：高蛋白、低脂、低油、蔬菜多、適合減脂",
+      ].join("\n"),
+    )
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByText("AI 分析完成，可加入餐點資料集。")).toBeInTheDocument()
+    expect(screen.queryByText(/主要食材或說明不足/)).not.toBeInTheDocument()
+    const analysis = await screen.findByLabelText("AI 分析結果")
+    expect(within(analysis).getByText("雞胸肉健康餐")).toBeInTheDocument()
+    expect(within(analysis).getByText(/黑米飯/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "加入餐點資料集" })).toBeInTheDocument()
+  })
+
   test("does not call analysis API when all analysis inputs are empty", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn(mockOnlineApi())

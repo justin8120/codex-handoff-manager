@@ -280,6 +280,19 @@ KNOWN_MEALS: dict[str, dict[str, Any]] = {
 
 def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], original_text: str | None = None) -> MealAnalysisResult:
     payload = result.model_dump() if isinstance(result, MealAnalysisResult) else dict(result)
+    payload = _coerce_payload_aliases(payload)
+    structured = _parse_structured_description(original_text or "")
+    if structured.get("mealName"):
+        payload["mealName"] = structured["mealName"]
+    if structured.get("mealType"):
+        payload["mealType"] = structured["mealType"]
+    if structured.get("tags"):
+        payload["tags"] = _merge_lists(_string_list(payload.get("tags")), structured["tags"])
+    if structured.get("mainIngredients"):
+        payload["mainIngredients"] = _merge_lists(
+            _string_list(payload.get("mainIngredients")),
+            structured["mainIngredients"],
+        )
     source_type = payload.get("sourceType") if payload.get("sourceType") in {"text", "image", "url"} else "text"
     meal_name = normalize_meal_name(str(payload.get("mealName") or original_text or "\u672a\u547d\u540d\u9910\u9ede"))
     original_meal_name = normalize_meal_name(str(original_text or ""))
@@ -539,6 +552,88 @@ def _positive_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _coerce_payload_aliases(payload: dict[str, Any]) -> dict[str, Any]:
+    coerced = dict(payload)
+    alias_pairs = {
+        "mealName": ["name", "meal_name"],
+        "mealType": ["type", "meal_type"],
+        "mainIngredients": ["ingredients", "main_ingredients"],
+        "tags": ["dietTags", "diet_tags"],
+        "estimatedCalories": ["calories", "estimated_calories"],
+        "estimatedProtein": ["protein", "estimated_protein"],
+        "recommendationReason": ["reason", "recommendation_reason"],
+    }
+    for canonical, aliases in alias_pairs.items():
+        if coerced.get(canonical):
+            continue
+        for alias in aliases:
+            if coerced.get(alias):
+                coerced[canonical] = coerced[alias]
+                break
+    return coerced
+
+
+def _parse_structured_description(text: str) -> dict[str, Any]:
+    if not text.strip():
+        return {}
+    fields: dict[str, str] = {}
+    current_key = ""
+    key_map = {
+        "餐點名稱": "mealName",
+        "名稱": "mealName",
+        "name": "mealName",
+        "餐點類型": "mealType",
+        "類型": "mealType",
+        "type": "mealType",
+        "主要食材": "mainIngredients",
+        "食材": "mainIngredients",
+        "ingredients": "mainIngredients",
+        "飲食標籤": "tags",
+        "標籤": "tags",
+        "dietTags": "tags",
+        "tags": "tags",
+    }
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        matched = False
+        for label, key in key_map.items():
+            prefixes = (f"{label}：", f"{label}:")
+            if line.startswith(prefixes):
+                fields[key] = line.split("：", 1)[1].strip() if "：" in line else line.split(":", 1)[1].strip()
+                current_key = key
+                matched = True
+                break
+        if matched:
+            continue
+        if current_key:
+            fields[current_key] = f"{fields.get(current_key, '')} {line}".strip()
+
+    structured: dict[str, Any] = {}
+    if fields.get("mealName"):
+        structured["mealName"] = normalize_user_facing_text(fields["mealName"])
+    if fields.get("mealType"):
+        structured["mealType"] = "、".join(_split_user_list(fields["mealType"]))
+    if fields.get("mainIngredients"):
+        structured["mainIngredients"] = _split_user_list(fields["mainIngredients"])
+    if fields.get("tags"):
+        structured["tags"] = _split_user_list(fields["tags"])
+    return structured
+
+
+def _split_user_list(value: str) -> list[str]:
+    normalized = value.replace("\n", " ")
+    for separator in ["、", "，", ",", "；", ";", "/", "／", "｜", "|"]:
+        normalized = normalized.replace(separator, " ")
+    values: list[str] = []
+    for item in normalized.split():
+        cleaned = normalize_user_facing_text(item.strip())
+        if cleaned and cleaned not in values:
+            values.append(cleaned)
+    return values
 
 
 def _string_list(value: Any) -> list[str]:

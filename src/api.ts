@@ -29,6 +29,16 @@ export type BackendMeal = {
   goals?: string[]
 }
 
+type FlexibleBackendMeal = Partial<BackendMeal> & {
+  name?: string
+  type?: string
+  calories?: number
+  protein?: number
+  dietTags?: string[]
+  ingredients?: string[]
+  reason?: string
+}
+
 export type MealUpsertResponse = {
   meal: BackendMeal
   action: "created" | "merged"
@@ -56,22 +66,23 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export function backendMealToMeal(meal: BackendMeal): Meal {
+export function backendMealToMeal(meal: FlexibleBackendMeal): Meal {
+  const sourceType = meal.sourceType ?? "text"
   return {
-    id: meal.id,
-    name: meal.mealName,
-    type: meal.mealType,
-    calories: meal.estimatedCalories,
-    protein: meal.estimatedProtein,
-    tags: meal.tags as DietTag[],
+    id: meal.id ?? crypto.randomUUID(),
+    name: meal.mealName ?? meal.name ?? "",
+    type: meal.mealType ?? meal.type ?? "",
+    calories: meal.estimatedCalories ?? meal.calories ?? 0,
+    protein: meal.estimatedProtein ?? meal.protein ?? 0,
+    tags: ((meal.tags ?? meal.dietTags ?? []) as DietTag[]).filter(Boolean),
     goals: backendGoals(meal),
-    ingredients: meal.mainIngredients,
-    allergens: meal.allergens as Allergen[],
-    reason: meal.recommendationReason,
-    confidence: meal.confidence,
-    sourceType: sourceTypeLabel(meal.sourceType),
+    ingredients: meal.mainIngredients ?? meal.ingredients ?? [],
+    allergens: (meal.allergens ?? []) as Allergen[],
+    reason: meal.recommendationReason ?? meal.reason ?? "",
+    confidence: meal.confidence ?? 0.55,
+    sourceType: sourceTypeLabel(sourceType),
     createdAt: meal.createdAt,
-    isAiGenerated: meal.isAiGenerated,
+    isAiGenerated: meal.isAiGenerated ?? true,
   }
 }
 
@@ -161,20 +172,26 @@ export async function recommendMeals(payload: RecommendPayload): Promise<Meal[]>
   return response.map(backendMealToMeal)
 }
 
-export function inferGoals(meal: BackendMeal): MealGoal[] {
+export function inferGoals(meal: FlexibleBackendMeal): MealGoal[] {
   const goals = new Set<MealGoal>()
-  const tags = meal.tags.join(" ")
-  const profile = `${meal.mealName} ${meal.mealType} ${tags} ${meal.recommendationReason}`
+  const tags = meal.tags ?? meal.dietTags ?? []
+  const tagsText = tags.join(" ")
+  const mealName = meal.mealName ?? meal.name ?? ""
+  const mealType = meal.mealType ?? meal.type ?? ""
+  const reason = meal.recommendationReason ?? meal.reason ?? ""
+  const calories = meal.estimatedCalories ?? meal.calories ?? 0
+  const protein = meal.estimatedProtein ?? meal.protein ?? 0
+  const profile = `${mealName} ${mealType} ${tagsText} ${reason}`
   const isFriedOrHighFat = /炸物|油炸|高脂肪/.test(profile)
   const isSweetOrHighSugar = /甜點|高糖|烘焙/.test(profile)
   const isRisky = isFriedOrHighFat || isSweetOrHighSugar
-  const isHighCalorie = meal.estimatedCalories >= 700
-  const isExplicitLowCalorie = meal.tags.includes("低卡")
+  const isHighCalorie = calories >= 700
+  const isExplicitLowCalorie = tags.includes("低卡")
   const isHealthyLeanMeal =
     !isRisky &&
     (/雞胸肉|水煮|沙拉|蔬菜|健康餐/.test(profile) ||
-      meal.tags.includes("健康餐") ||
-      meal.tags.includes("低脂"))
+      tags.includes("健康餐") ||
+      tags.includes("低脂"))
 
   if (isSweetOrHighSugar) {
     goals.add("偶爾享用")
@@ -183,7 +200,7 @@ export function inferGoals(meal: BackendMeal): MealGoal[] {
     return [...goals]
   }
 
-  if (meal.estimatedProtein >= 25 || meal.tags.includes("高蛋白")) {
+  if (protein >= 25 || tags.includes("高蛋白")) {
     goals.add("增肌")
     goals.add("高蛋白補充")
   }
@@ -195,17 +212,17 @@ export function inferGoals(meal: BackendMeal): MealGoal[] {
   }
 
   if (
-    (meal.estimatedCalories <= 450 || isExplicitLowCalorie || isHealthyLeanMeal) &&
+    (calories <= 450 || isExplicitLowCalorie || isHealthyLeanMeal) &&
     (!isHighCalorie || isExplicitLowCalorie)
   ) {
     goals.add("減脂")
     goals.add("健康維持")
   }
-  if (isHealthyLeanMeal || meal.estimatedProtein >= 15) goals.add("均衡飲食")
+  if (isHealthyLeanMeal || protein >= 15) goals.add("均衡飲食")
   return [...goals]
 }
 
-function backendGoals(meal: BackendMeal): MealGoal[] {
+function backendGoals(meal: FlexibleBackendMeal): MealGoal[] {
   const labels = meal.recommendedGoals ?? meal.suitableGoals ?? meal.goals
   return labels && labels.length > 0 ? (labels as MealGoal[]) : inferGoals(meal)
 }

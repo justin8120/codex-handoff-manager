@@ -164,6 +164,93 @@ function isCompleteMeal(meal: Meal) {
   )
 }
 
+function isJoinableMeal(meal: Meal) {
+  return (
+    meal.name.trim().length > 0 &&
+    meal.type.trim().length > 0 &&
+    meal.ingredients.filter(
+      (item) =>
+        item.trim().length > 0 &&
+        !invalidIngredientTokens.some((token) => item.toLowerCase().includes(token.toLowerCase())),
+    ).length >= 2
+  )
+}
+
+function parseStructuredDescription(text: string) {
+  const fields: {
+    name?: string
+    type?: string
+    ingredients?: string[]
+    tags?: string[]
+  } = {}
+  const keyMap: Record<string, keyof typeof fields> = {
+    餐點名稱: "name",
+    名稱: "name",
+    name: "name",
+    餐點類型: "type",
+    類型: "type",
+    type: "type",
+    主要食材: "ingredients",
+    食材: "ingredients",
+    ingredients: "ingredients",
+    飲食標籤: "tags",
+    標籤: "tags",
+    dietTags: "tags",
+    tags: "tags",
+  }
+  const rawValues: Partial<Record<keyof typeof fields, string>> = {}
+  let currentKey: keyof typeof fields | "" = ""
+
+  text.split(/\r?\n/).forEach((rawLine) => {
+    const line = rawLine.trim()
+    if (!line) return
+    const matched = Object.entries(keyMap).find(([label]) =>
+      [undefined].some(() => line.startsWith(`${label}：`) || line.startsWith(`${label}:`)),
+    )
+    if (matched) {
+      const [label, key] = matched
+      rawValues[key] = line.slice(label.length + 1).trim()
+      currentKey = key
+      return
+    }
+    if (currentKey) {
+      rawValues[currentKey] = `${rawValues[currentKey] ?? ""} ${line}`.trim()
+    }
+  })
+
+  if (rawValues.name) fields.name = rawValues.name.trim()
+  if (rawValues.type) fields.type = splitDescriptionList(rawValues.type).join("、")
+  if (rawValues.ingredients) fields.ingredients = splitDescriptionList(rawValues.ingredients)
+  if (rawValues.tags) fields.tags = splitDescriptionList(rawValues.tags)
+  return fields
+}
+
+function splitDescriptionList(value: string) {
+  return value
+    .replace(/[、，,；;／/｜|]/g, " ")
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter((item, index, items) => item.length > 0 && items.indexOf(item) === index)
+}
+
+function enrichMealFromDescription(meal: Meal, text: string): Meal {
+  const parsed = parseStructuredDescription(text)
+  const next: Meal = {
+    ...meal,
+    name: parsed.name || meal.name,
+    type: parsed.type || meal.type,
+    tags: mergeUnique(meal.tags, parsed.tags ?? []) as DietTag[],
+    ingredients: mergeUnique(meal.ingredients, parsed.ingredients ?? []),
+  }
+  if (parsed.name || parsed.type || parsed.ingredients?.length) {
+    next.reason =
+      meal.reason && !genericReasonTemplates.includes(meal.reason)
+        ? meal.reason
+        : "系統根據使用者提供的餐點描述整理餐點名稱、類型與主要食材，營養數值為日常飲食建議用途的合理估算。"
+  }
+  return next
+}
+
 function loadStoredList(key: string) {
   try {
     const payload = window.localStorage.getItem(key)
@@ -705,7 +792,8 @@ export function App() {
       } else {
         result = await analyzeText(trimmedDescription, effectiveExcludedAllergens)
       }
-      setAnalysisResult(result)
+      const enrichedResult = enrichMealFromDescription(result, trimmedDescription)
+      setAnalysisResult(enrichedResult)
       setAnalysisMessage("AI 分析完成，可加入餐點資料集。")
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "AI 分析失敗，請稍後再試。")
@@ -716,7 +804,7 @@ export function App() {
 
   const handleAddAnalysis = async () => {
     if (!analysisResult) return
-    if (!isCompleteMeal(analysisResult)) {
+    if (!isJoinableMeal(analysisResult)) {
       setAnalysisError("此餐點資料不完整，請補充餐點名稱或主要食材後再加入資料集。")
       return
     }
@@ -932,13 +1020,13 @@ export function App() {
             ) : null}
             {analysisError ? <p className="error-message">{analysisError}</p> : null}
 
-            {analysisResult && !isCompleteMeal(analysisResult) ? (
+            {analysisResult && !isJoinableMeal(analysisResult) ? (
               <p className="error-message">
                 此次分析結果的主要食材或說明不足，建議補充餐點名稱或主要食材後重新分析。
               </p>
             ) : null}
 
-            {analysisResult && isCompleteMeal(analysisResult) ? (
+            {analysisResult && isJoinableMeal(analysisResult) ? (
               <div className="analysis-result" aria-label="AI 分析結果">
                 <MealCard meal={analysisResult} />
                 <button className="utility-button" onClick={handleAddAnalysis}>
