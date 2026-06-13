@@ -425,7 +425,7 @@ describe("App", () => {
     )
     render(<App />)
 
-    await user.type(screen.getByLabelText("文字描述"), "不確定")
+    await user.type(screen.getByLabelText("文字描述"), "餐點")
     await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
 
     expect(
@@ -544,6 +544,60 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "加入餐點資料集" })).toBeInTheDocument()
   })
 
+  test("allows image-only analysis without no-input error", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/api/health")) {
+        return jsonResponse({
+          status: "ok",
+          aiProvider: "gemini",
+          aiConfigured: true,
+          model: "gemini-2.5-flash-lite",
+          fallbackEnabled: true,
+        })
+      }
+      if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+      if (url.endsWith("/api/analyze/image"))
+        return jsonResponse({
+          id: "image-only-dessert",
+          mealName: "杜老爺冰品",
+          mealType: "冰品 / 甜點",
+          estimatedCalories: 260,
+          estimatedProtein: 4,
+          tags: ["冰品", "甜點", "高糖"],
+          mainIngredients: [],
+          allergens: ["乳製品"],
+          recommendationReason: "系統根據圖片推測此項目為冰品或甜點。",
+          confidence: 0.45,
+          sourceType: "image",
+          createdAt: "2026-06-14T00:00:00+00:00",
+          isAiGenerated: true,
+          warningMessage:
+            "此結果為 AI 根據有限資訊推測，實際營養與成分仍需以包裝標示或店家資料為準。",
+        })
+      return jsonResponse({ detail: "Not found" }, { status: 404 })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.upload(
+      screen.getByLabelText("圖片上傳"),
+      new File(["fake"], "高甜.png", { type: "image/png" }),
+    )
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByText("AI 分析完成，可加入餐點資料集。")).toBeInTheDocument()
+    expect(
+      screen.queryByText("請至少輸入文字描述、上傳餐點圖片，或貼上餐點連結。"),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("杜老爺冰品")).toBeInTheDocument()
+    expect(screen.getByText(/信心分數：45%（中 \/ medium）/)).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/analyze/image")),
+    ).toBe(true)
+  })
+
   test("allows brand-only packaged food guess without ingredient blocking", async () => {
     const user = userEvent.setup()
     vi.stubGlobal(
@@ -589,6 +643,25 @@ describe("App", () => {
     expect(await screen.findByText("AI 分析完成，可加入餐點資料集。")).toBeInTheDocument()
     expect(screen.getByText(/信心分數：35%（低 \/ low）/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "加入餐點資料集" })).toBeInTheDocument()
+  })
+
+  test("rejects meaningless text without creating an analysis card", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "abc123")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(
+      screen.getByText("無法判斷此內容是否為食物，請輸入餐點名稱、食材、圖片或餐點連結。"),
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("AI 分析結果")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "加入餐點資料集" })).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/analyze/"))).toBe(
+      false,
+    )
   })
 
   test("does not call analysis API when all analysis inputs are empty", async () => {

@@ -318,6 +318,46 @@ function inferFoodFromLooseDescription(text: string): Partial<Meal> {
   return {}
 }
 
+function isLikelyFoodDescription(text: string) {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+  if (/^[a-z0-9_\-.\s]+$/.test(normalized)) return false
+  if (Object.keys(parseStructuredDescription(text)).length > 0) return true
+  return [
+    "餐",
+    "飯",
+    "麵",
+    "粥",
+    "湯",
+    "便當",
+    "沙拉",
+    "蛋",
+    "肉",
+    "雞",
+    "牛",
+    "豬",
+    "魚",
+    "蝦",
+    "蔬菜",
+    "水果",
+    "冰",
+    "甜點",
+    "飲品",
+    "咖啡",
+    "茶",
+    "減脂",
+    "增肌",
+    "低卡",
+    "高蛋白",
+    "麻辣",
+    "豆腐",
+    "杜老爺",
+    "小籠包",
+    "湯包",
+    "炒飯",
+  ].some((term) => normalized.includes(term.toLowerCase()))
+}
+
 function loadStoredList(key: string) {
   try {
     const payload = window.localStorage.getItem(key)
@@ -844,6 +884,16 @@ export function App() {
     if (!trimmedDescription && !imageFile && !trimmedLink) {
       setAnalysisResult(null)
       setAnalysisError("請至少輸入文字描述、上傳餐點圖片，或貼上餐點連結。")
+      return
+    }
+    if (
+      trimmedDescription &&
+      !imageFile &&
+      !trimmedLink &&
+      !isLikelyFoodDescription(trimmedDescription)
+    ) {
+      setAnalysisResult(null)
+      setAnalysisError("無法判斷此內容是否為食物，請輸入餐點名稱、食材、圖片或餐點連結。")
       return
     }
 

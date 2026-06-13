@@ -1486,6 +1486,16 @@ def test_brand_only_text_can_be_low_confidence_packaged_food_guess(monkeypatch):
     assert "包裝標示" in payload["warningMessage"]
 
 
+def test_meaningless_text_is_rejected_without_health_meal_fallback(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post("/api/analyze/text", json={"description": "abc123"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "無法判斷此內容是否為食物，請輸入餐點名稱、食材、圖片或餐點連結。"
+
+
 def test_fallback_response_is_ascii_escaped_json(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "mock")
     monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")

@@ -114,6 +114,11 @@ SOUP_DUMPLING = "\u6e6f\u5305"
 XIAOLONGBAO = "\u5c0f\u7c60\u5305"
 WATERMELON = "\u897f\u74dc"
 PEANUT = "\u82b1\u751f"
+LIMITED_INFO_WARNING = "此結果為 AI 根據有限資訊推測，實際營養與成分仍需以包裝標示或店家資料為準。"
+PACKAGED_DESSERT_REASON = (
+    "系統根據圖片檔名、文字提示或可見線索推測此項目為冰品或甜點。"
+    "由於缺少完整營養標示與成分表，熱量、蛋白質與過敏原僅能作為日常飲食建議的粗略估算。"
+)
 XIAOLONGBAO_HINT_REASON = (
     "\u7cfb\u7d71\u6839\u64da\u4f7f\u7528\u8005\u63d0\u4f9b\u7684\u6587\u5b57\u63cf\u8ff0\u8207\u5716\u7247\u5167\u5bb9"
     "\u5224\u65b7\u6b64\u9910\u9ede\u70ba\u5c0f\u7c60\u5305\uff0c\u4e3b\u8981\u7531\u9eb5\u76ae\u3001\u8c6c\u8089\u9921"
@@ -229,6 +234,11 @@ def _safe_analyze(
     text_hint: str | None = None,
 ) -> MealAnalysisResult:
     provider = get_ai_provider()
+    if source_type == "text" and not _is_likely_food_text(text):
+        raise HTTPException(
+            status_code=400,
+            detail="無法判斷此內容是否為食物，請輸入餐點名稱、食材、圖片或餐點連結。",
+        )
     if provider.name == "mock":
         if source_type == "url":
             return _uncertain_url_result(text, confidence=0.35)
@@ -856,6 +866,8 @@ def _fallback_result(
         if image_context_result:
             issues = _image_validation_errors(image_context_result, text)
             return merge_image_result_with_text_hint(image_context_result, hint_info, issues)
+        if _is_packaged_dessert_hint(f"{text} {text_hint or ''}"):
+            return _packaged_dessert_result(source_type, confidence=confidence or 0.45)
         if not _has_known_image_hint(text):
             return merge_image_result_with_text_hint(
                 _uncertain_image_result(confidence or 0.35),
@@ -880,6 +892,8 @@ def _fallback_result(
         return _xiaolongbao_hint_result(source_type, confidence=confidence or 0.68)
     if _is_watermelon_hint(normalized):
         return _hint_result(WATERMELON, source_type, confidence=confidence or 0.68)
+    if _is_packaged_dessert_hint(normalized):
+        return _packaged_dessert_result(source_type, confidence=confidence or 0.35)
 
     if SHRIMP_FRIED_RICE in normalized:
         meal_name = SHRIMP_FRIED_RICE
@@ -946,6 +960,58 @@ def _has_any(text: str, keywords: list[str]) -> bool:
     return any(keyword.lower() in text for keyword in keywords)
 
 
+def _is_likely_food_text(text: str) -> bool:
+    normalized = normalize_user_facing_text(text).lower()
+    if not normalized:
+        return False
+    if re.fullmatch(r"[a-z0-9_\-.\s]+", normalized):
+        return False
+    food_keywords = [
+        "餐",
+        "飯",
+        "麵",
+        "粥",
+        "湯",
+        "便當",
+        "沙拉",
+        "蛋",
+        "肉",
+        "雞",
+        "牛",
+        "豬",
+        "魚",
+        "蝦",
+        "蔬菜",
+        "水果",
+        "冰",
+        "甜點",
+        "飲品",
+        "咖啡",
+        "茶",
+        "減脂",
+        "增肌",
+        "低卡",
+        "高蛋白",
+        "麻辣",
+        "豆腐",
+        "杜老爺",
+        "小籠包",
+        "湯包",
+        "豚丼",
+        "炒飯",
+    ]
+    structured_labels = ["餐點名稱", "主要食材", "餐點類型", "飲食標籤"]
+    return _has_any(normalized, [*food_keywords, *structured_labels])
+
+
+def _is_packaged_dessert_hint(text: str) -> bool:
+    normalized = normalize_user_facing_text(text).lower()
+    return _has_any(
+        normalized,
+        ["杜老爺", "冰淇淋", "冰品", "甜筒", "高甜", "甜點", "ice cream", "dessert"],
+    )
+
+
 def _has_known_image_hint(text: str) -> bool:
     normalized = normalize_meal_name(text)
     hints = [
@@ -957,6 +1023,14 @@ def _has_known_image_hint(text: str) -> bool:
         XIAOLONGBAO,
         WATERMELON,
         PEANUT,
+        "杜老爺",
+        "冰淇淋",
+        "冰品",
+        "甜筒",
+        "高甜",
+        "甜點",
+        "ice cream",
+        "dessert",
         "steamed dumplings",
         "soup dumplings",
         "watermelon",
@@ -1117,6 +1191,29 @@ def _hint_result(meal_name: str, source_type: str, confidence: float, provider_n
             "isAiGenerated": True,
         },
         original_text=meal_name,
+    )
+
+
+def _packaged_dessert_result(source_type: str, confidence: float, provider_name: str = "system") -> MealAnalysisResult:
+    return normalize_and_enrich_result(
+        {
+            "id": f"{provider_name}-{uuid4()}",
+            "mealName": "杜老爺冰品",
+            "mealType": "冰品 / 甜點",
+            "estimatedCalories": 260,
+            "estimatedProtein": 4,
+            "tags": ["冰品", "甜點", "高糖"],
+            "mainIngredients": [],
+            "allergens": ["乳製品"],
+            "recommendationReason": PACKAGED_DESSERT_REASON,
+            "confidence": max(0, min(confidence, 0.45)),
+            "sourceType": _source_type(source_type),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "isAiGenerated": True,
+            "warningMessage": LIMITED_INFO_WARNING,
+            "nutritionNote": "僅能依品牌、檔名或圖片類型做粗略估算，若需更準確資訊請參考包裝營養標示。",
+        },
+        original_text="杜老爺冰品",
     )
 
 
