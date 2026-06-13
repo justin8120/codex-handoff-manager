@@ -1,3 +1,6 @@
+import sys
+import types as module_types
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -12,6 +15,7 @@ from app.services.nutrition_enricher import (
 )
 from app.services.openai_meal_analyzer import classify_text_hint
 from app.services.web_food_verifier import rerank_food_candidates
+from app.services import web_food_verifier
 from app.storage import meals_store
 
 
@@ -885,6 +889,115 @@ def test_analyze_image_does_not_500_when_web_verification_fails(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["mealName"] == "\u8c5a\u4e3c"
+
+
+def test_gemini_grounding_does_not_combine_tools_with_json_mime(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    class FakeResponse:
+        def __init__(self, text: str):
+            self.text = text
+            self.candidates = []
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            calls.append({"model": model, "contents": contents, "config": config})
+            if len(calls) == 1:
+                return FakeResponse("\u6839\u64da\u641c\u5c0b\u8207\u53ef\u898b\u7279\u5fb5\uff0c\u8f03\u53ef\u80fd\u662f\u8c5a\u4e3c\u3002")
+            return FakeResponse(
+                '{"verifiedName":"\u8c5a\u4e3c","verifiedType":"\u65e5\u5f0f\u4e3c\u98ef","confidence":0.72,'
+                '"matchedEvidence":["\u8089\u7247\u8986\u84cb\u767d\u98ef"],"rejectedCandidates":[],"sources":[]}'
+            )
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.models = FakeModels()
+
+    class FakeGenerateContentConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeGoogleSearch:
+        pass
+
+    class FakeTool:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_google = module_types.ModuleType("google")
+    fake_genai = module_types.ModuleType("google.genai")
+    fake_types = module_types.SimpleNamespace(
+        GenerateContentConfig=FakeGenerateContentConfig,
+        GoogleSearch=FakeGoogleSearch,
+        Tool=FakeTool,
+    )
+    fake_genai.Client = FakeClient
+    fake_genai.types = fake_types
+    fake_google.genai = fake_genai
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    result = web_food_verifier._try_gemini_grounding(
+        [{"name": "\u8c5a\u4e3c", "confidence": 0.7, "evidence": ["\u8c6c\u8089\u7247"]}],
+        "\u53ef\u898b\u8c6c\u8089\u7247\u8207\u767d\u98ef",
+    )
+
+    first_config = calls[0]["config"].kwargs
+    second_config = calls[1]["config"].kwargs
+    assert "tools" in first_config
+    assert "response_mime_type" not in first_config
+    assert "tools" not in second_config
+    assert second_config["response_mime_type"] == "application/json"
+    assert result["verifiedName"] == "\u8c5a\u4e3c"
+
+
+def test_web_verification_400_falls_back_to_local_result(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(web_food_verifier, "web_verify_enabled", lambda: True)
+    monkeypatch.setattr(web_food_verifier, "web_verify_provider", lambda: "gemini_grounding")
+
+    def fail_grounding(candidates, visual_description):
+        raise RuntimeError("400 INVALID_ARGUMENT")
+
+    monkeypatch.setattr(web_food_verifier, "_try_gemini_grounding", fail_grounding)
+    result = web_food_verifier.verify_food_candidates(
+        [
+            {"name": "\u8c5a\u4e3c", "confidence": 0.7, "evidence": ["\u8c6c\u8089\u7247", "\u767d\u98ef"]},
+            {"name": "\u89aa\u5b50\u4e3c", "confidence": 0.6, "evidence": ["\u86cb", "\u767d\u98ef"]},
+        ],
+        "\u53ef\u898b\u8c6c\u8089\u7247\u8207\u767d\u98ef",
+    )
+
+    assert result["verifiedName"] == "\u8c5a\u4e3c"
+
+
+def test_health_is_not_affected_by_web_verification(monkeypatch):
+    monkeypatch.setattr(web_food_verifier, "_try_gemini_grounding", lambda candidates, visual_description: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_url_analysis_fetch_failure_returns_low_confidence(monkeypatch):
+    from app.services import openai_meal_analyzer
+
+    async def fail_fetch(url):
+        import httpx
+
+        raise httpx.HTTPError("fetch failed")
+
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+    monkeypatch.setattr(openai_meal_analyzer, "fetch_url_summary", fail_fetch)
+
+    response = client.post("/api/analyze/url", json={"url": "https://example.com/no-clear-food"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sourceType"] == "url"
+    assert payload["confidence"] <= 0.4
 
 
 def test_unrecognized_image_fallback_uses_low_confidence_without_pending_placeholder(monkeypatch):

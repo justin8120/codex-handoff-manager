@@ -47,7 +47,7 @@ def verify_food_candidates(candidates: list[dict[str, Any]], visual_description:
     try:
         grounded_result = _try_gemini_grounding(candidates, visual_description)
     except Exception as error:
-        print(f"Web verification failed: {error}")
+        print(f"Web verification unavailable; using local verification: {type(error).__name__}")
         return local_result
 
     if not grounded_result:
@@ -152,11 +152,12 @@ def _try_gemini_grounding(candidates: list[dict[str, Any]], visual_description: 
     from google.genai import types  # type: ignore[import-not-found]
 
     client = genai.Client(api_key=api_key)
-    prompt = (
+    grounded_prompt = (
         "Use Google Search grounding to compare these food candidates against the visual evidence. "
         "Focus on distinguishing butadon pork rice bowl from oyakodon chicken egg rice bowl. "
-        "Return only JSON with keys: verifiedName, verifiedType, confidence, matchedEvidence, "
-        "rejectedCandidates, sources. No markdown.\n"
+        "Return a concise natural-language summary with the likely food name, likely ingredients, "
+        "why close candidates were accepted or rejected, and any useful source titles or URLs. "
+        "Do not return JSON in this grounded step.\n"
         f"Visual description: {visual_description}\n"
         f"Candidates: {json.dumps(candidates, ensure_ascii=False)}\n"
         "Useful search queries include: "
@@ -165,22 +166,47 @@ def _try_gemini_grounding(candidates: list[dict[str, Any]], visual_description: 
         "\u8c5a\u4e3c vs \u89aa\u5b50\u4e3c \u5dee\u7570; "
         "butadon pork rice bowl egg nori; oyakodon chicken egg rice bowl."
     )
-    response = client.models.generate_content(
+    grounded_response = client.models.generate_content(
         model=gemini_grounding_model(),
-        contents=prompt,
+        contents=grounded_prompt,
         config=types.GenerateContentConfig(
             tools=[types.Tool(google_search=types.GoogleSearch())],
-            response_mime_type="application/json",
         ),
+    )
+    summary = getattr(grounded_response, "text", "") or ""
+    if not summary:
+        return None
+
+    json_prompt = (
+        "Return only valid JSON, no markdown. Convert the grounded food verification summary into this JSON shape: "
+        "{verifiedName, verifiedType, confidence, matchedEvidence, rejectedCandidates, sources}. "
+        "Use Traditional Chinese values. Confidence must be between 0 and 1. "
+        "If sources are unavailable, return an empty sources array.\n"
+        f"Visual description: {visual_description}\n"
+        f"Candidates: {json.dumps(candidates, ensure_ascii=False)}\n"
+        f"Grounded summary: {summary}"
+    )
+    response = client.models.generate_content(
+        model=gemini_grounding_model(),
+        contents=json_prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
     text = getattr(response, "text", "") or ""
     if not text:
         return None
-    payload = json.loads(text)
-    sources = _extract_sources(response)
+    payload = json.loads(_strip_json_fence(text))
+    sources = _extract_sources(grounded_response)
     if sources and not payload.get("sources"):
         payload["sources"] = sources
     return payload
+
+
+def _strip_json_fence(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.removeprefix("```json").removeprefix("```").strip()
+        stripped = stripped.removesuffix("```").strip()
+    return stripped
 
 
 def _extract_sources(response: Any) -> list[dict[str, str]]:
