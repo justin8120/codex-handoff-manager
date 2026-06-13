@@ -7,7 +7,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.models import MealAnalysisResult, RecommendRequest, TextAnalyzeRequest, UrlAnalyzeRequest
+from app.models import MealAnalysisResult, MealUpsertResponse, RecommendRequest, TextAnalyzeRequest, UrlAnalyzeRequest
 from app.services import openai_meal_analyzer
 from app.services.nutrition_enricher import normalize_and_enrich_result
 from app.storage.meals_store import add_meal, load_meals, recommend_meals
@@ -104,9 +104,13 @@ def get_meals() -> list[MealAnalysisResult]:
     return load_meals()
 
 
-@app.post("/api/meals", response_model=MealAnalysisResult)
-def create_meal(meal: MealAnalysisResult) -> MealAnalysisResult:
-    return add_meal(meal)
+@app.post("/api/meals", response_model=MealUpsertResponse)
+def create_meal(meal: MealAnalysisResult) -> MealUpsertResponse:
+    try:
+        saved_meal, action = add_meal(meal)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return MealUpsertResponse(meal=saved_meal, action=action)
 
 
 @app.post("/api/recommend", response_model=list[MealAnalysisResult])

@@ -13,6 +13,7 @@
 - 文字、圖片、URL 餐點分析
 - 圖片分析支援候選餐點初判與網路比對校正
 - AI 分析結果可加入餐點資料集
+- 使用者新增餐點會以 upsert 方式合併同名餐點，避免重複卡片
 - 根據健康目標、飲食標籤、禁忌食材與關鍵字推薦餐點
 - 後端未啟動時，前端可顯示離線展示資料
 
@@ -138,6 +139,20 @@ WEB_VERIFY_PROVIDER=gemini_grounding
 ```bash
 FRONTEND_ORIGIN=http://localhost:5173,https://justin8120.github.io
 ```
+
+## 使用者新增餐點資料
+
+後端將內建資料與使用者資料分開管理：
+
+- `backend/data/meals.json`：內建基礎資料集
+- `backend/data/user_meals.json`：使用者透過 `POST /api/meals` 新增或合併的餐點
+
+`POST /api/meals` 會依正規化後的餐點名稱 upsert：
+
+- 同名餐點已存在：合併標籤、主要食材、過敏原與較完整說明
+- 同名餐點不存在：新增到 `user_meals.json`
+
+本機開發時，`user_meals.json` 可作為簡易持久化。Render Free 若未設定 persistent disk，重新部署或服務重啟後檔案可能遺失；若要正式保存線上使用者新增資料，建議後續改用 Render Persistent Disk、SQLite + persistent disk、PostgreSQL、Supabase 或 Firebase。
 
 ## API Key Safety
 

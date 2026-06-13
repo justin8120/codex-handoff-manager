@@ -29,6 +29,11 @@ export type BackendMeal = {
   goals?: string[]
 }
 
+export type MealUpsertResponse = {
+  meal: BackendMeal
+  action: "created" | "merged"
+}
+
 export type RecommendPayload = {
   healthGoal: HealthGoal
   tags: DietTag[]
@@ -138,12 +143,14 @@ export async function analyzeUrl(url: string, excludedIngredients: Allergen[] = 
   return backendMealToMeal(payload)
 }
 
-export async function addMeal(meal: Meal): Promise<Meal> {
-  const payload = await request<BackendMeal>("/api/meals", {
+export async function addMeal(
+  meal: Meal,
+): Promise<{ meal: Meal; action: MealUpsertResponse["action"] }> {
+  const payload = await request<MealUpsertResponse>("/api/meals", {
     method: "POST",
     body: JSON.stringify(mealToBackendMeal(meal)),
   })
-  return backendMealToMeal(payload)
+  return { meal: backendMealToMeal(payload.meal), action: payload.action }
 }
 
 export async function recommendMeals(payload: RecommendPayload): Promise<Meal[]> {

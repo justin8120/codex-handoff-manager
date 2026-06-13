@@ -281,7 +281,7 @@ async function main() {
         const started = Date.now();
         const timer = setInterval(() => {
           const state = read();
-          if (state.metrics[0] !== "載入中" || Date.now() - started > 20000) {
+          if (state.metrics[0] !== "載入中" || Date.now() - started > 60000) {
             clearInterval(timer);
             resolve(state);
           }

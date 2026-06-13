@@ -27,3 +27,4 @@ __pycache__
 .pytest_cache
 .venv
 backend/.venv
+backend/data/user_meals.json

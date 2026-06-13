@@ -1,3 +1,4 @@
+import json
 import sys
 import types as module_types
 
@@ -1814,3 +1815,106 @@ def test_incomplete_image_analysis_confidence_is_capped():
     )
 
     assert result.confidence <= 0.4
+
+
+def test_post_meals_creates_user_meal_without_touching_base_file(monkeypatch, tmp_path):
+    base_file = tmp_path / "meals.json"
+    user_file = tmp_path / "user_meals.json"
+    base_file.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(meals_store, "MEALS_FILE", base_file)
+    monkeypatch.setattr(meals_store, "USER_MEALS_FILE", user_file)
+
+    response = client.post("/api/meals", json=meal_fixture("\u7d2b\u7c73\u852c\u83dc\u98ef").model_dump())
+
+    assert response.status_code == 200
+    assert response.json()["action"] == "created"
+    assert json.loads(base_file.read_text(encoding="utf-8")) == []
+    assert len(json.loads(user_file.read_text(encoding="utf-8"))) == 1
+
+
+def test_post_meals_merges_same_name_without_duplicate(monkeypatch, tmp_path):
+    base_file = tmp_path / "meals.json"
+    user_file = tmp_path / "user_meals.json"
+    base_file.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(meals_store, "MEALS_FILE", base_file)
+    monkeypatch.setattr(meals_store, "USER_MEALS_FILE", user_file)
+
+    first = meal_fixture(
+        "\u70b8\u96de\u6392",
+        tags=["\u70b8\u7269", "\u96de\u8089", "\u9ad8\u86cb\u767d"],
+        ingredients=["\u96de\u8089", "\u9eb5\u8863", "\u6cb9"],
+    )
+    second = meal_fixture(
+        "\u70b8\u96de\u6392",
+        tags=["\u70b8\u7269", "\u5c0f\u5403"],
+        ingredients=["\u96de\u8089", "\u9eb5\u8863", "\u6cb9", "\u80e1\u6912"],
+        reason="\u70b8\u96de\u6392\u4ee5\u96de\u8089\u8207\u9eb5\u8863\u70b8\u88fd\uff0c\u80e1\u6912\u589e\u52a0\u98a8\u5473\uff0c\u5efa\u8b70\u6ce8\u610f\u4efd\u91cf\u3002",
+    )
+
+    assert client.post("/api/meals", json=first.model_dump()).json()["action"] == "created"
+    merged_response = client.post("/api/meals", json=second.model_dump())
+
+    assert merged_response.status_code == 200
+    payload = merged_response.json()
+    assert payload["action"] == "merged"
+    assert payload["meal"]["tags"] == ["\u70b8\u7269", "\u96de\u8089", "\u9ad8\u86cb\u767d", "\u5c0f\u5403"]
+    assert payload["meal"]["mainIngredients"] == ["\u96de\u8089", "\u9eb5\u8863", "\u6cb9", "\u80e1\u6912"]
+    assert len(json.loads(user_file.read_text(encoding="utf-8"))) == 1
+
+
+def test_get_meals_and_recommend_use_merged_dataset(monkeypatch, tmp_path):
+    base_file = tmp_path / "meals.json"
+    user_file = tmp_path / "user_meals.json"
+    base = meal_fixture("\u70b8\u96de\u6392", tags=["\u70b8\u7269"], ingredients=["\u96de\u8089", "\u9eb5\u8863"])
+    user = meal_fixture("\u70b8\u96de\u6392", tags=["\u5c0f\u5403"], ingredients=["\u80e1\u6912"])
+    extra = meal_fixture("\u9999\u83dc\u8c46\u8150", tags=["\u7d20\u98df"], ingredients=["\u8c46\u8150", "\u9999\u83dc"])
+    base_file.write_text(json.dumps([base.model_dump(), extra.model_dump()], ensure_ascii=False), encoding="utf-8")
+    user_file.write_text(json.dumps([user.model_dump()], ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(meals_store, "MEALS_FILE", base_file)
+    monkeypatch.setattr(meals_store, "USER_MEALS_FILE", user_file)
+
+    meals_response = client.get("/api/meals")
+    names = [meal["mealName"] for meal in meals_response.json()]
+    recommend_response = client.post(
+        "/api/recommend",
+        json={"healthGoal": "", "tags": ["\u5c0f\u5403"], "excludedIngredients": [], "keyword": None},
+    )
+
+    assert names.count("\u70b8\u96de\u6392") == 1
+    merged = next(meal for meal in meals_response.json() if meal["mealName"] == "\u70b8\u96de\u6392")
+    assert "\u5c0f\u5403" in merged["tags"]
+    assert "\u80e1\u6912" in merged["mainIngredients"]
+    assert [meal["mealName"] for meal in recommend_response.json()] == ["\u70b8\u96de\u6392"]
+
+
+def test_post_meals_rejects_incomplete_meal(monkeypatch, tmp_path):
+    base_file = tmp_path / "meals.json"
+    user_file = tmp_path / "user_meals.json"
+    base_file.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(meals_store, "MEALS_FILE", base_file)
+    monkeypatch.setattr(meals_store, "USER_MEALS_FILE", user_file)
+    incomplete = meal_fixture(
+        "\u6e6f\u5305",
+        tags=["\u4e2d\u5f0f"],
+        ingredients=["\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d"],
+    )
+
+    response = client.post("/api/meals", json=incomplete.model_dump())
+
+    assert response.status_code == 400
+    assert "\u8cc7\u6599\u4e0d\u5b8c\u6574" in response.json()["detail"]
+
+
+def test_user_meals_file_missing_or_invalid_does_not_break_health(monkeypatch, tmp_path):
+    base_file = tmp_path / "meals.json"
+    user_file = tmp_path / "user_meals.json"
+    base_file.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(meals_store, "MEALS_FILE", base_file)
+    monkeypatch.setattr(meals_store, "USER_MEALS_FILE", user_file)
+
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/api/meals").status_code == 200
+
+    user_file.write_text("{bad json", encoding="utf-8")
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/api/meals").status_code == 200

@@ -7,6 +7,7 @@ from app.models import MealAnalysisResult
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 MEALS_FILE = DATA_DIR / "meals.json"
+USER_MEALS_FILE = DATA_DIR / "user_meals.json"
 
 CATEGORY_SYNONYMS: dict[str, list[str]] = {
     "\u8089\u985e": [
@@ -146,13 +147,16 @@ def _ensure_data_file() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not MEALS_FILE.exists():
         MEALS_FILE.write_text("[]", encoding="utf-8")
+    if not USER_MEALS_FILE.exists():
+        USER_MEALS_FILE.write_text("[]", encoding="utf-8")
 
 
 def load_meals() -> list[MealAnalysisResult]:
     _ensure_data_file()
     with _lock:
-        raw = json.loads(MEALS_FILE.read_text(encoding="utf-8"))
-    return [MealAnalysisResult.model_validate(item) for item in raw]
+        base_meals = _read_meals_file(MEALS_FILE, strict=True)
+        user_meals = _read_meals_file(USER_MEALS_FILE, strict=False)
+    return _merge_meal_lists([*base_meals, *user_meals])
 
 
 def save_meals(meals: list[MealAnalysisResult]) -> None:
@@ -162,11 +166,125 @@ def save_meals(meals: list[MealAnalysisResult]) -> None:
         MEALS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def add_meal(meal: MealAnalysisResult) -> MealAnalysisResult:
-    meals = load_meals()
-    meals.insert(0, meal)
-    save_meals(meals)
-    return meal
+def add_meal(meal: MealAnalysisResult) -> tuple[MealAnalysisResult, str]:
+    if not is_complete_meal(meal):
+        raise ValueError("\u6b64\u9910\u9ede\u8cc7\u6599\u4e0d\u5b8c\u6574\uff0c\u8acb\u88dc\u5145\u9910\u9ede\u540d\u7a31\u6216\u4e3b\u8981\u98df\u6750\u5f8c\u518d\u52a0\u5165\u8cc7\u6599\u96c6\u3002")
+
+    _ensure_data_file()
+    with _lock:
+        base_meals = _read_meals_file(MEALS_FILE, strict=True)
+        user_meals = _read_meals_file(USER_MEALS_FILE, strict=False)
+        incoming_key = normalize_meal_name_key(meal.mealName)
+        user_by_name = {normalize_meal_name_key(item.mealName): item for item in user_meals}
+        existing = user_by_name.get(incoming_key) or next(
+            (item for item in base_meals if normalize_meal_name_key(item.mealName) == incoming_key),
+            None,
+        )
+
+        action = "created"
+        saved_meal = meal
+        if existing:
+            saved_meal = merge_meal(existing, meal)
+            action = "merged"
+
+        user_by_name[incoming_key] = saved_meal
+        _write_user_meals(list(user_by_name.values()))
+        return saved_meal, action
+
+
+def normalize_meal_name_key(name: str) -> str:
+    return " ".join(str(name or "").replace("\u3000", " ").strip().split()).lower()
+
+
+def merge_meal(existing: MealAnalysisResult, incoming: MealAnalysisResult) -> MealAnalysisResult:
+    update = existing.model_dump()
+    if not update["mealName"].strip() or update["mealName"] == "\u7591\u4f3c\u9910\u9ede":
+        update["mealName"] = incoming.mealName
+    update["estimatedCalories"] = _merged_number(existing.estimatedCalories, incoming.estimatedCalories)
+    update["estimatedProtein"] = _merged_number(existing.estimatedProtein, incoming.estimatedProtein)
+    update["tags"] = _merge_unique(existing.tags, incoming.tags)
+    update["mainIngredients"] = _merge_unique(existing.mainIngredients, incoming.mainIngredients)
+    update["allergens"] = _merge_unique(existing.allergens, incoming.allergens)
+    if _is_better_reason(incoming.recommendationReason, existing.recommendationReason):
+        update["recommendationReason"] = incoming.recommendationReason
+    update["confidence"] = min(max(existing.confidence, incoming.confidence, 0.5), 0.9)
+    update["createdAt"] = existing.createdAt
+    update["isAiGenerated"] = existing.isAiGenerated or incoming.isAiGenerated
+    update["recommendedGoals"] = _merge_unique(existing.recommendedGoals, incoming.recommendedGoals)
+    return MealAnalysisResult.model_validate(update)
+
+
+def _merged_number(existing: float, incoming: float) -> float:
+    if incoming > 0 and existing <= 0:
+        return incoming
+    if incoming > 0 and existing > 0:
+        return incoming
+    return existing
+
+
+def _merge_unique(left: list[str], right: list[str]) -> list[str]:
+    values: list[str] = []
+    for item in [*left, *right]:
+        normalized = str(item).strip()
+        if normalized and normalized not in values:
+            values.append(normalized)
+    return values
+
+
+def _is_better_reason(incoming: str, existing: str) -> bool:
+    if not incoming.strip():
+        return False
+    if _reason_has_engineering_text(incoming):
+        return False
+    if not existing.strip() or existing in GENERIC_REASON_TEMPLATES:
+        return True
+    return len(incoming) > len(existing)
+
+
+def _reason_has_engineering_text(reason: str) -> bool:
+    lowered = reason.lower()
+    return any(token.lower() in lowered for token in FORBIDDEN_ENGINEERING_TOKENS)
+
+
+def _read_meals_file(path: Path, strict: bool) -> list[MealAnalysisResult]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        if strict:
+            raise
+        return []
+    if not isinstance(raw, list):
+        if strict:
+            raise ValueError(f"{path} must contain a JSON array")
+        return []
+    meals: list[MealAnalysisResult] = []
+    for item in raw:
+        try:
+            meals.append(MealAnalysisResult.model_validate(item))
+        except Exception:
+            if strict:
+                raise
+    return meals
+
+
+def _write_user_meals(meals: list[MealAnalysisResult]) -> None:
+    payload = [meal.model_dump() for meal in meals]
+    USER_MEALS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _merge_meal_lists(meals: list[MealAnalysisResult]) -> list[MealAnalysisResult]:
+    merged: dict[str, MealAnalysisResult] = {}
+    order: list[str] = []
+    for meal in meals:
+        key = normalize_meal_name_key(meal.mealName)
+        if not key:
+            continue
+        if key in merged:
+            merged[key] = merge_meal(merged[key], meal)
+        else:
+            merged[key] = meal
+            order.append(key)
+    return [merged[key] for key in order]
 
 
 def recommend_meals(

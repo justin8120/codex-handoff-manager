@@ -22,8 +22,9 @@
 - `backend/app/services/openai_meal_analyzer.py`: 文字、圖片、URL 餐點分析流程與安全系統分析。
 - `backend/app/services/web_food_verifier.py`: 圖片候選餐點校正、豚丼 / 親子丼 / 豬排丼 rerank 規則、Gemini Search grounding best-effort 流程。
 - `backend/app/services/url_fetcher.py`: 使用 httpx + BeautifulSoup 擷取單一 URL 內容。
-- `backend/app/storage/meals_store.py`: JSON 餐點資料集讀寫。
-- `backend/data/meals.json`: 預設餐點資料與新增分析結果。
+- `backend/app/storage/meals_store.py`: JSON 餐點資料集讀取、使用者餐點 upsert / merge、推薦過濾。
+- `backend/data/meals.json`: 內建基礎餐點資料。
+- `backend/data/user_meals.json`: 本機執行時的使用者新增餐點資料，執行期產生且不提交。
 - `backend/tests/test_api.py`: FastAPI endpoint 與正規化 / rerank 測試。
 
 ## Deployment Files

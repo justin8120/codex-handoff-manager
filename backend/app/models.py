@@ -23,6 +23,11 @@ class MealAnalysisResult(BaseModel):
     recommendedGoals: list[str] = Field(default_factory=list)
 
 
+class MealUpsertResponse(BaseModel):
+    meal: MealAnalysisResult
+    action: Literal["created", "merged"]
+
+
 class TextAnalyzeRequest(BaseModel):
     description: str | None = None
     text: str | None = None

@@ -69,6 +69,14 @@ pip install -r requirements.txt
 - `POST /api/meals`
 - `POST /api/recommend`
 
+## User Meal Storage
+
+- `backend/data/meals.json` is the built-in base dataset and should not be modified by user submissions at runtime.
+- `POST /api/meals` writes user-added or merged meals to `backend/data/user_meals.json`.
+- `GET /api/meals` and `POST /api/recommend` read the merged view of base meals plus user meals, deduplicated by normalized `mealName`.
+- In local development, `user_meals.json` provides simple file-based persistence.
+- On Render Free without a persistent disk, `user_meals.json` may be lost after restart or redeploy. For production-grade persistence, use Render Persistent Disk, SQLite on a persistent disk, PostgreSQL, Supabase, Firebase, or a similar external store.
+
 ## Tests
 
 ```bash

@@ -43,6 +43,7 @@ type CustomListKind = "tag" | "avoid"
 const defaultGoal: HealthGoal = "均衡飲食"
 const customDietTagsKey = "smartDiet.customDietTags"
 const customAvoidIngredientsKey = "smartDiet.customAvoidIngredients"
+const localUserMealsKey = "smartDiet.localUserMeals"
 const maxCustomItems = 20
 const categorySynonyms: Record<string, string[]> = {
   肉類: [
@@ -178,6 +179,76 @@ function loadStoredList(key: string) {
 
 function saveStoredList(key: string, values: string[]) {
   window.localStorage.setItem(key, JSON.stringify(values))
+}
+
+function loadStoredMeals() {
+  try {
+    const payload = window.localStorage.getItem(localUserMealsKey)
+    if (!payload) return []
+    const parsed = JSON.parse(payload)
+    return Array.isArray(parsed) ? parsed.filter(isStoredMeal) : []
+  } catch {
+    return []
+  }
+}
+
+function saveStoredMeals(values: Meal[]) {
+  window.localStorage.setItem(localUserMealsKey, JSON.stringify(values))
+}
+
+function isStoredMeal(value: unknown): value is Meal {
+  if (!value || typeof value !== "object") return false
+  const meal = value as Partial<Meal>
+  return (
+    typeof meal.name === "string" && Array.isArray(meal.ingredients) && Array.isArray(meal.tags)
+  )
+}
+
+function normalizeMealNameKey(name: string) {
+  return name.replaceAll("\u3000", " ").trim().split(/\s+/).join(" ").toLowerCase()
+}
+
+function mergeUnique(left: string[], right: string[]) {
+  const values: string[] = []
+  ;[...left, ...right].forEach((item) => {
+    const normalized = item.trim()
+    if (normalized && !values.includes(normalized)) values.push(normalized)
+  })
+  return values
+}
+
+function mergeMeal(existing: Meal, incoming: Meal): Meal {
+  return {
+    ...existing,
+    calories: incoming.calories > 0 ? incoming.calories : existing.calories,
+    protein: incoming.protein > 0 ? incoming.protein : existing.protein,
+    tags: mergeUnique(existing.tags, incoming.tags) as DietTag[],
+    goals: mergeUnique(existing.goals, incoming.goals) as Meal["goals"],
+    ingredients: mergeUnique(existing.ingredients, incoming.ingredients),
+    allergens: mergeUnique(existing.allergens, incoming.allergens) as Allergen[],
+    reason:
+      incoming.reason.trim().length > existing.reason.trim().length
+        ? incoming.reason
+        : existing.reason,
+    confidence: Math.min(Math.max(existing.confidence ?? 0.5, incoming.confidence ?? 0.5), 0.9),
+    isAiGenerated: existing.isAiGenerated || incoming.isAiGenerated,
+  }
+}
+
+function mergeMealCollections(...collections: Meal[][]) {
+  const merged = new Map<string, Meal>()
+  const order: string[] = []
+  collections.flat().forEach((meal) => {
+    const key = normalizeMealNameKey(meal.name)
+    if (!key) return
+    if (merged.has(key)) {
+      merged.set(key, mergeMeal(merged.get(key) as Meal, meal))
+      return
+    }
+    merged.set(key, meal)
+    order.push(key)
+  })
+  return order.map((key) => merged.get(key) as Meal)
 }
 
 function sleep(delayMs: number) {
@@ -442,7 +513,10 @@ function CustomChoiceGroup({
 }
 
 export function App() {
-  const [mealDataset, setMealDataset] = useState<Meal[]>(meals)
+  const [localUserMeals, setLocalUserMeals] = useState<Meal[]>(loadStoredMeals)
+  const [mealDataset, setMealDataset] = useState<Meal[]>(() =>
+    mergeMealCollections(meals, loadStoredMeals()),
+  )
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null)
   const [backendError, setBackendError] = useState("")
   const [isOfflineMode, setIsOfflineMode] = useState(false)
@@ -464,7 +538,9 @@ export function App() {
   const [avoidMessage, setAvoidMessage] = useState("")
   const [keyword, setKeyword] = useState("")
   const [hasSearched, setHasSearched] = useState(false)
-  const [recommendedMeals, setRecommendedMeals] = useState<Meal[]>(meals)
+  const [recommendedMeals, setRecommendedMeals] = useState<Meal[]>(() =>
+    mergeMealCollections(meals, loadStoredMeals()),
+  )
   const [history, setHistory] = useState<QueryRecord[]>([])
   const [description, setDescription] = useState("")
   const [mealLink, setMealLink] = useState("")
@@ -493,15 +569,17 @@ export function App() {
         ])
         if (cancelled) return
         setBackendHealth(health)
-        setMealDataset(backendMeals)
-        setRecommendedMeals(backendMeals)
+        const mergedMeals = mergeMealCollections(backendMeals, localUserMeals)
+        setMealDataset(mergedMeals)
+        setRecommendedMeals(mergedMeals)
         setBackendError("")
         setIsOfflineMode(false)
       } catch {
         if (cancelled) return
         setBackendHealth(null)
-        setMealDataset(meals)
-        setRecommendedMeals(meals)
+        const offlineMeals = mergeMealCollections(meals, localUserMeals)
+        setMealDataset(offlineMeals)
+        setRecommendedMeals(offlineMeals)
         setBackendError(
           "目前無法連線後端，系統暫時使用離線示範資料。部分 AI 分析與資料集可能不是最新版本。",
         )
@@ -638,15 +716,26 @@ export function App() {
 
   const handleAddAnalysis = async () => {
     if (!analysisResult) return
+    if (!isCompleteMeal(analysisResult)) {
+      setAnalysisError("此餐點資料不完整，請補充餐點名稱或主要食材後再加入資料集。")
+      return
+    }
 
     try {
-      const savedMeal = isOfflineMode ? analysisResult : await addMeal(analysisResult)
-      setMealDataset((current) => [savedMeal, ...current])
-      setRecommendedMeals((current) => [savedMeal, ...current])
-      setAnalysisMessage(`${analysisResult.name} 已加入餐點資料集，可用於推薦。`)
+      if (isOfflineMode) throw new Error("offline")
+      const { meal: savedMeal, action } = await addMeal(analysisResult)
+      setMealDataset((current) => mergeMealCollections(current, [savedMeal]))
+      setRecommendedMeals((current) => mergeMealCollections(current, [savedMeal]))
+      setAnalysisMessage(action === "merged" ? "已合併至既有餐點資料。" : "已新增至餐點資料集。")
       setAnalysisError("")
-    } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : "加入餐點資料集失敗，請稍後再試。")
+    } catch {
+      const nextLocalMeals = mergeMealCollections(localUserMeals, [analysisResult])
+      setLocalUserMeals(nextLocalMeals)
+      saveStoredMeals(nextLocalMeals)
+      setMealDataset((current) => mergeMealCollections(current, [analysisResult]))
+      setRecommendedMeals((current) => mergeMealCollections(current, [analysisResult]))
+      setAnalysisMessage("後端暫時無法連線，已先儲存在本機資料集。")
+      setAnalysisError("")
     }
   }
 

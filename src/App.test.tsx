@@ -164,7 +164,8 @@ function mockOnlineApi() {
         fallbackEnabled: true,
       })
     }
-    if (url.endsWith("/api/meals") && init?.method === "POST") return jsonResponse(analysisMeal)
+    if (url.endsWith("/api/meals") && init?.method === "POST")
+      return jsonResponse({ meal: analysisMeal, action: "created" })
     if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
     if (url.endsWith("/api/analyze/text")) return jsonResponse(analysisMeal)
     if (url.endsWith("/api/analyze/image"))
@@ -281,6 +282,8 @@ describe("App", () => {
 
   test("runs mocked AI text analysis and adds the result to the dataset", async () => {
     const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
     render(<App />)
 
     await user.type(screen.getByLabelText("文字描述"), "茶葉蛋")
@@ -290,9 +293,136 @@ describe("App", () => {
     expect(within(analysis).getByText("茶葉蛋")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "加入餐點資料集" }))
-    await waitFor(() =>
-      expect(screen.getByText("茶葉蛋 已加入餐點資料集，可用於推薦。")).toBeInTheDocument(),
+    await waitFor(() => expect(screen.getByText("已新增至餐點資料集。")).toBeInTheDocument())
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) => String(input).endsWith("/api/meals") && init?.method === "POST",
+      ),
+    ).toBe(true)
+  })
+
+  test("shows merged message when backend upserts an existing meal", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals") && init?.method === "POST")
+          return jsonResponse({ meal: analysisMeal, action: "merged" })
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/analyze/text")) return jsonResponse(analysisMeal)
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
     )
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "茶葉蛋")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+    await screen.findByLabelText("AI 分析結果")
+    await user.click(screen.getByRole("button", { name: "加入餐點資料集" }))
+
+    expect(await screen.findByText("已合併至既有餐點資料。")).toBeInTheDocument()
+  })
+
+  test("stores analyzed meal locally when backend add fails", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals") && init?.method === "POST") {
+          return jsonResponse({ detail: "offline" }, { status: 503 })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/analyze/text")) return jsonResponse(analysisMeal)
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "茶葉蛋")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+    await screen.findByLabelText("AI 分析結果")
+    await user.click(screen.getByRole("button", { name: "加入餐點資料集" }))
+
+    expect(await screen.findByText("後端暫時無法連線，已先儲存在本機資料集。")).toBeInTheDocument()
+    expect(window.localStorage.getItem("smartDiet.localUserMeals")).toContain("茶葉蛋")
+  })
+
+  test("local user meals merge with backend meals without duplicate cards", async () => {
+    window.localStorage.setItem(
+      "smartDiet.localUserMeals",
+      JSON.stringify([
+        {
+          id: "local-tea-egg",
+          name: "茶葉蛋",
+          type: "蛋白點心",
+          calories: 85,
+          protein: 8,
+          tags: ["小吃"],
+          goals: ["健康維持"],
+          ingredients: ["雞蛋", "胡椒"],
+          allergens: ["蛋"],
+          reason: "本機補充的茶葉蛋資料。",
+          confidence: 0.7,
+          sourceType: "文字",
+          isAiGenerated: true,
+        },
+      ]),
+    )
+
+    render(<App />)
+
+    const dataset = await screen.findByLabelText("餐點資料集清單")
+    await waitFor(() => expect(within(dataset).getAllByText("茶葉蛋")).toHaveLength(1))
+    expect(within(dataset).getByText(/胡椒/)).toBeInTheDocument()
+  })
+
+  test("does not add incomplete analysis result to dataset", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/analyze/text")) return jsonResponse(incompleteMeal)
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "湯包")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByText(/此次分析結果的主要食材或說明不足/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "加入餐點資料集" })).not.toBeInTheDocument()
   })
 
   test("does not call analysis API when all analysis inputs are empty", async () => {
