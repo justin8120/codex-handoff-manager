@@ -1471,6 +1471,21 @@ def test_structured_text_description_enriches_incomplete_analysis(monkeypatch):
     assert "低油" in payload["tags"]
 
 
+def test_brand_only_text_can_be_low_confidence_packaged_food_guess(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")
+
+    response = client.post("/api/analyze/text", json={"description": "杜老爺"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mealName"] == "杜老爺冰品"
+    assert payload["mealType"] == "冰品 / 甜點"
+    assert "甜點" in payload["tags"]
+    assert payload["confidence"] <= 0.35
+    assert "包裝標示" in payload["warningMessage"]
+
+
 def test_fallback_response_is_ascii_escaped_json(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "mock")
     monkeypatch.setenv("AI_FALLBACK_ENABLED", "true")

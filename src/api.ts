@@ -27,6 +27,8 @@ export type BackendMeal = {
   recommendedGoals?: string[]
   suitableGoals?: string[]
   goals?: string[]
+  warningMessage?: string
+  nutritionNote?: string
 }
 
 type FlexibleBackendMeal = Partial<BackendMeal> & {
@@ -37,6 +39,8 @@ type FlexibleBackendMeal = Partial<BackendMeal> & {
   dietTags?: string[]
   ingredients?: string[]
   reason?: string
+  warningMessage?: string
+  nutritionNote?: string
 }
 
 export type MealUpsertResponse = {
@@ -80,6 +84,8 @@ export function backendMealToMeal(meal: FlexibleBackendMeal): Meal {
     allergens: (meal.allergens ?? []) as Allergen[],
     reason: meal.recommendationReason ?? meal.reason ?? "",
     confidence: meal.confidence ?? 0.55,
+    warningMessage: meal.warningMessage,
+    nutritionNote: meal.nutritionNote,
     sourceType: sourceTypeLabel(sourceType),
     createdAt: meal.createdAt,
     isAiGenerated: meal.isAiGenerated ?? true,
@@ -98,6 +104,8 @@ export function mealToBackendMeal(meal: Meal): BackendMeal {
     allergens: meal.allergens,
     recommendationReason: meal.reason,
     confidence: meal.confidence ?? 0.8,
+    warningMessage: meal.warningMessage,
+    nutritionNote: meal.nutritionNote,
     sourceType: sourceTypeValue(meal.sourceType),
     createdAt: meal.createdAt ?? new Date().toISOString(),
     isAiGenerated: meal.isAiGenerated ?? true,

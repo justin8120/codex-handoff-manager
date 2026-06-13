@@ -85,9 +85,36 @@ CINNAMON_SWIRL_REASON = (
     "\u5c6c\u65bc\u751c\u9ede\u8207\u70d8\u7119\u9ede\u5fc3\uff0c\u7cd6\u5206\u8207\u78b3\u6c34\u5316\u5408\u7269\u8f03\u9ad8\uff0c"
     "\u5efa\u8b70\u5076\u723e\u4eab\u7528\u3002"
 )
+LIMITED_INFO_WARNING = "此結果為 AI 根據有限資訊推測，實際營養與成分仍需以包裝標示或店家資料為準。"
+DULOA_ICE_CREAM_REASON = (
+    "系統根據使用者提供的品牌或圖片線索推測此項目為杜老爺相關冰品。"
+    "冰品與甜點通常糖分較高，營養與成分仍需以包裝標示或店家資料為準。"
+)
 RECOMMENDATION_CATEGORIES_PATH = Path(__file__).resolve().parents[2] / "data" / "recommendation_categories.json"
 
 KNOWN_MEALS: dict[str, dict[str, Any]] = {
+    "杜老爺": {
+        "estimatedCalories": 260,
+        "estimatedProtein": 4,
+        "mealType": "冰品 / 甜點",
+        "tags": ["冰品", "甜點", "高糖"],
+        "mainIngredients": [],
+        "allergens": ["乳製品"],
+        "recommendationReason": DULOA_ICE_CREAM_REASON,
+        "warningMessage": LIMITED_INFO_WARNING,
+        "nutritionNote": "僅能依品牌與食品類型做粗略估算，若需更準確資訊請參考包裝營養標示。",
+    },
+    "杜老爺冰品": {
+        "estimatedCalories": 260,
+        "estimatedProtein": 4,
+        "mealType": "冰品 / 甜點",
+        "tags": ["冰品", "甜點", "高糖"],
+        "mainIngredients": [],
+        "allergens": ["乳製品"],
+        "recommendationReason": DULOA_ICE_CREAM_REASON,
+        "warningMessage": LIMITED_INFO_WARNING,
+        "nutritionNote": "僅能依品牌與食品類型做粗略估算，若需更準確資訊請參考包裝營養標示。",
+    },
     "\u5c0f\u7c60\u5305": {
         "estimatedCalories": 380,
         "estimatedProtein": 16,
@@ -298,10 +325,18 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
     original_meal_name = normalize_meal_name(str(original_text or ""))
     if _is_generic_name(meal_name) and original_meal_name in KNOWN_MEALS:
         meal_name = original_meal_name
+    if _is_generic_name(meal_name):
+        inferred_name = _infer_name_from_context(original_text or "")
+        if inferred_name:
+            meal_name = inferred_name
+    if meal_name == "杜老爺":
+        meal_name = "杜老爺冰品"
     meal_name = _contextual_meal_name(meal_name, payload, original_text)
     known = KNOWN_MEALS.get(meal_name, {})
     raw_meal_type = normalize_user_facing_text(str(payload.get("mealType") or ""))
     meal_type = str(known.get("mealType") or "") if _is_generic_meal_type(raw_meal_type) else raw_meal_type
+    if meal_name == "杜老爺冰品" and known.get("mealType"):
+        meal_type = str(known["mealType"])
     tags = _merge_lists(_string_list(payload.get("tags")), _string_list(known.get("tags")))
     main_ingredients = [
         ingredient
@@ -309,6 +344,10 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         if not _is_invalid_user_value(ingredient)
     ]
     allergens = _merge_lists(_string_list(payload.get("allergens")), _string_list(known.get("allergens")))
+    if meal_name == "杜老爺冰品":
+        tags = _string_list(known.get("tags"))
+        main_ingredients = _string_list(known.get("mainIngredients"))
+        allergens = _string_list(known.get("allergens"))
 
     calories = _positive_float(payload.get("estimatedCalories")) or _positive_float(known.get("estimatedCalories"))
     protein = _positive_float(payload.get("estimatedProtein")) or _positive_float(known.get("estimatedProtein"))
@@ -321,7 +360,10 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         protein = protein or estimated["estimatedProtein"]
     if not main_ingredients and known.get("mainIngredients"):
         main_ingredients = _string_list(known["mainIngredients"])
-    if not main_ingredients:
+    warning_message = normalize_user_facing_text(str(payload.get("warningMessage") or known.get("warningMessage") or ""))
+    nutrition_note = normalize_user_facing_text(str(payload.get("nutritionNote") or known.get("nutritionNote") or ""))
+    allows_limited_ingredients = bool(warning_message or nutrition_note)
+    if not main_ingredients and not allows_limited_ingredients:
         main_ingredients = ["\u4e3b\u8981\u98df\u6750\u5f85\u78ba\u8a8d"]
 
     allergens = _merge_lists(allergens, _infer_allergens(main_ingredients))
@@ -344,6 +386,8 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
             "recommendationReason": reason,
             "confidence": confidence,
             "sourceType": source_type,
+            "warningMessage": warning_message,
+            "nutritionNote": nutrition_note,
         },
         source_type=source_type,
         validation_errors=validate_analysis_result(
@@ -379,12 +423,21 @@ def normalize_and_enrich_result(result: MealAnalysisResult | dict[str, Any], ori
         createdAt=str(payload.get("createdAt") or datetime.now(timezone.utc).isoformat()),
         isAiGenerated=bool(payload.get("isAiGenerated", True)),
         recommendedGoals=infer_recommendation_labels(meal_name, meal_type, tags, calories, protein),
+        warningMessage=warning_message or None,
+        nutritionNote=nutrition_note or None,
     )
     if validate_analysis_result(enriched):
         fixed = enriched.model_dump()
         if _is_invalid_user_value(fixed["mealName"]):
             fixed["mealName"] = "\u7d9c\u5408\u9910"
-        if not fixed["mainIngredients"] or all(_is_invalid_user_value(item) for item in fixed["mainIngredients"]):
+        if (
+            not fixed["mainIngredients"]
+            and not fixed.get("warningMessage")
+            and not fixed.get("nutritionNote")
+        ) or (
+            fixed["mainIngredients"]
+            and all(_is_invalid_user_value(item) for item in fixed["mainIngredients"])
+        ):
             fixed["mainIngredients"] = ["\u4e3b\u8981\u98df\u6750\u9700\u4eba\u5de5\u78ba\u8a8d"]
         if not fixed["tags"]:
             fixed["tags"] = ["\u7d9c\u5408\u9910"]
@@ -484,9 +537,12 @@ def calibrate_confidence(
     source = source_type if source_type in {"text", "image", "url"} else str(payload.get("sourceType") or "text")
     validation_errors = validation_errors or []
     evidence = str(parsed_evidence or "")
+    has_limited_info_warning = bool(payload.get("warningMessage") or payload.get("nutritionNote"))
 
     if _has_incomplete_ingredients(ingredients):
         confidence = min(confidence, 0.45)
+    if has_limited_info_warning and not ingredients:
+        confidence = min(confidence, 0.35)
     if used_fallback:
         confidence = min(confidence, 0.55)
     if source == "url":
@@ -701,6 +757,12 @@ def _contextual_meal_name(meal_name: str, payload: dict[str, Any], original_text
     if has_steak and has_egg and meal_name in {"\u725b\u6392", "\u725b\u6392\u86cb", "\u9eb5\u98df", "\u672a\u547d\u540d\u9910\u9ede"}:
         return "\u725b\u6392\u86cb"
     return meal_name
+
+
+def _infer_name_from_context(text: str) -> str:
+    if "杜老爺" in text:
+        return "杜老爺冰品"
+    return ""
 
 
 def _has_noodle_evidence(context: str) -> bool:

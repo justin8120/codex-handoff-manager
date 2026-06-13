@@ -146,6 +146,13 @@ function formatProtein(value: number) {
   return value > 0 ? `${value}g` : "未估算"
 }
 
+function formatConfidence(value?: number) {
+  if (!value) return ""
+  const level = value >= 0.75 ? "high" : value >= 0.45 ? "medium" : "low"
+  const label = level === "high" ? "高" : level === "medium" ? "中" : "低"
+  return `信心分數：${Math.round(value * 100)}%（${label} / ${level}）`
+}
+
 function isCompleteMeal(meal: Meal) {
   const hasValidCalories = meal.calories > 0 || meal.type === "飲品"
   const reason = meal.reason.trim()
@@ -165,14 +172,42 @@ function isCompleteMeal(meal: Meal) {
 }
 
 function isJoinableMeal(meal: Meal) {
+  const hasValidIngredient = meal.ingredients.some(
+    (item) =>
+      item.trim().length > 0 &&
+      !invalidIngredientTokens.some((token) => item.toLowerCase().includes(token.toLowerCase())),
+  )
+  const hasInference = meal.tags.length > 0 || hasValidIngredient || meal.reason.trim().length > 0
   return (
     meal.name.trim().length > 0 &&
     meal.type.trim().length > 0 &&
-    meal.ingredients.filter(
-      (item) =>
-        item.trim().length > 0 &&
-        !invalidIngredientTokens.some((token) => item.toLowerCase().includes(token.toLowerCase())),
-    ).length >= 2
+    !["疑似餐點", "待補充餐點", "未命名餐點"].includes(meal.name.trim()) &&
+    hasInference
+  )
+}
+
+function shouldShowAnalysisError(meal: Meal) {
+  return (
+    !meal.name.trim() ||
+    !meal.type.trim() ||
+    ["疑似餐點", "待補充餐點", "未命名餐點"].includes(meal.name.trim())
+  )
+}
+
+function shouldShowAnalysisWarning(meal: Meal) {
+  const validIngredients = meal.ingredients.filter(
+    (item) =>
+      item.trim().length > 0 &&
+      !invalidIngredientTokens.some((token) => item.toLowerCase().includes(token.toLowerCase())),
+  )
+  return validIngredients.length < 2 || Boolean(meal.warningMessage || meal.nutritionNote)
+}
+
+function analysisWarningMessage(meal: Meal) {
+  return (
+    meal.warningMessage ||
+    meal.nutritionNote ||
+    "此結果為 AI 根據有限資訊推測，實際營養與成分仍需以包裝標示或店家資料為準。"
   )
 }
 
@@ -235,20 +270,52 @@ function splitDescriptionList(value: string) {
 
 function enrichMealFromDescription(meal: Meal, text: string): Meal {
   const parsed = parseStructuredDescription(text)
+  const inferred = inferFoodFromLooseDescription(text)
   const next: Meal = {
     ...meal,
-    name: parsed.name || meal.name,
-    type: parsed.type || meal.type,
-    tags: mergeUnique(meal.tags, parsed.tags ?? []) as DietTag[],
-    ingredients: mergeUnique(meal.ingredients, parsed.ingredients ?? []),
+    name: parsed.name || inferred.name || meal.name,
+    type: parsed.type || inferred.type || meal.type,
+    calories: meal.calories > 0 ? meal.calories : inferred.calories || meal.calories,
+    protein: meal.protein > 0 ? meal.protein : inferred.protein || meal.protein,
+    tags: mergeUnique(mergeUnique(meal.tags, parsed.tags ?? []), inferred.tags ?? []) as DietTag[],
+    ingredients: mergeUnique(
+      mergeUnique(meal.ingredients, parsed.ingredients ?? []),
+      inferred.ingredients ?? [],
+    ),
+    allergens: mergeUnique(meal.allergens, inferred.allergens ?? []) as Allergen[],
   }
-  if (parsed.name || parsed.type || parsed.ingredients?.length) {
+  if (inferred.warningMessage && !next.warningMessage) next.warningMessage = inferred.warningMessage
+  if (inferred.nutritionNote && !next.nutritionNote) next.nutritionNote = inferred.nutritionNote
+  if (inferred.confidence && (!next.confidence || next.confidence > inferred.confidence)) {
+    next.confidence = inferred.confidence
+  }
+  if (parsed.name || parsed.type || parsed.ingredients?.length || inferred.name) {
     next.reason =
       meal.reason && !genericReasonTemplates.includes(meal.reason)
         ? meal.reason
         : "系統根據使用者提供的餐點描述整理餐點名稱、類型與主要食材，營養數值為日常飲食建議用途的合理估算。"
   }
   return next
+}
+
+function inferFoodFromLooseDescription(text: string): Partial<Meal> {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return {}
+  if (normalized.includes("杜老爺")) {
+    return {
+      name: "杜老爺冰品",
+      type: "冰品 / 甜點",
+      calories: 260,
+      protein: 4,
+      tags: ["冰品", "甜點", "高糖"],
+      ingredients: [],
+      allergens: ["乳製品"],
+      confidence: 0.35,
+      warningMessage: "此結果為 AI 根據有限資訊推測，實際營養與成分仍需以包裝標示或店家資料為準。",
+      nutritionNote: "僅能依品牌與食品類型做粗略估算，若需更準確資訊請參考包裝營養標示。",
+    }
+  }
+  return {}
 }
 
 function loadStoredList(key: string) {
@@ -488,7 +555,7 @@ function MealCard({ meal }: { meal: Meal }) {
       </div>
       <p className="ingredients">
         <strong>主要食材：</strong>
-        {meal.ingredients.join("、")}
+        {meal.ingredients.length > 0 ? meal.ingredients.join("、") : "待確認"}
       </p>
       <p className="ingredients">
         <strong>過敏原 / 禁忌食材：</strong>
@@ -502,9 +569,12 @@ function MealCard({ meal }: { meal: Meal }) {
         <p className="source-note">
           {meal.sourceType ? `來源類型：${meal.sourceType}` : null}
           {meal.sourceType && meal.confidence ? "，" : null}
-          {meal.confidence ? `信心分數：${Math.round(meal.confidence * 100)}%` : null}
+          {formatConfidence(meal.confidence)}
           {meal.isAiGenerated ? "，系統分析" : null}
         </p>
+      ) : null}
+      {meal.warningMessage || meal.nutritionNote ? (
+        <p className="source-note">{meal.warningMessage || meal.nutritionNote}</p>
       ) : null}
     </article>
   )
@@ -805,7 +875,7 @@ export function App() {
   const handleAddAnalysis = async () => {
     if (!analysisResult) return
     if (!isJoinableMeal(analysisResult)) {
-      setAnalysisError("此餐點資料不完整，請補充餐點名稱或主要食材後再加入資料集。")
+      setAnalysisError("目前資訊不足，請至少提供餐點名稱、圖片或連結。")
       return
     }
 
@@ -1020,14 +1090,15 @@ export function App() {
             ) : null}
             {analysisError ? <p className="error-message">{analysisError}</p> : null}
 
-            {analysisResult && !isJoinableMeal(analysisResult) ? (
-              <p className="error-message">
-                此次分析結果的主要食材或說明不足，建議補充餐點名稱或主要食材後重新分析。
-              </p>
+            {analysisResult && shouldShowAnalysisError(analysisResult) ? (
+              <p className="error-message">目前資訊不足，請至少提供餐點名稱、圖片或連結。</p>
             ) : null}
 
             {analysisResult && isJoinableMeal(analysisResult) ? (
               <div className="analysis-result" aria-label="AI 分析結果">
+                {shouldShowAnalysisWarning(analysisResult) ? (
+                  <p className="status-message">{analysisWarningMessage(analysisResult)}</p>
+                ) : null}
                 <MealCard meal={analysisResult} />
                 <button className="utility-button" onClick={handleAddAnalysis}>
                   加入餐點資料集

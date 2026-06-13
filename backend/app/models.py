@@ -21,6 +21,8 @@ class MealAnalysisResult(BaseModel):
     createdAt: str
     isAiGenerated: bool
     recommendedGoals: list[str] = Field(default_factory=list)
+    warningMessage: str | None = None
+    nutritionNote: str | None = None
 
 
 class MealUpsertResponse(BaseModel):

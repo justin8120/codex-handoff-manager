@@ -211,6 +211,8 @@ def merge_meal(existing: MealAnalysisResult, incoming: MealAnalysisResult) -> Me
     update["createdAt"] = existing.createdAt
     update["isAiGenerated"] = existing.isAiGenerated or incoming.isAiGenerated
     update["recommendedGoals"] = _merge_unique(existing.recommendedGoals, incoming.recommendedGoals)
+    update["warningMessage"] = incoming.warningMessage or existing.warningMessage
+    update["nutritionNote"] = incoming.nutritionNote or existing.nutritionNote
     return MealAnalysisResult.model_validate(update)
 
 
@@ -357,13 +359,16 @@ def _term_matches_food_text(food_text: str, term: str) -> bool:
 def is_complete_meal(meal: MealAnalysisResult) -> bool:
     if not meal.mealName.strip():
         return False
+    if not meal.mealType.strip():
+        return False
     if meal.estimatedCalories <= 0 and meal.mealType != "\u98f2\u54c1":
         return False
     if meal.estimatedProtein < 0:
         return False
     if not meal.tags:
         return False
-    if not meal.mainIngredients:
+    allows_limited_ingredients = bool((meal.warningMessage or "").strip() or (meal.nutritionNote or "").strip())
+    if not meal.mainIngredients and not allows_limited_ingredients:
         return False
     if any(_has_invalid_ingredient_token(item) for item in meal.mainIngredients):
         return False

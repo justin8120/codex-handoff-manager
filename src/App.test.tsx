@@ -396,7 +396,7 @@ describe("App", () => {
     expect(within(dataset).getByText(/胡椒/)).toBeInTheDocument()
   })
 
-  test("does not add incomplete analysis result to dataset", async () => {
+  test("shows red error only when analysis cannot infer name and type", async () => {
     const user = userEvent.setup()
     vi.stubGlobal(
       "fetch",
@@ -412,16 +412,25 @@ describe("App", () => {
           })
         }
         if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
-        if (url.endsWith("/api/analyze/text")) return jsonResponse(incompleteMeal)
+        if (url.endsWith("/api/analyze/text"))
+          return jsonResponse({
+            ...incompleteMeal,
+            mealName: "",
+            mealType: "",
+            tags: [],
+            mainIngredients: [],
+          })
         return jsonResponse({ detail: "Not found" }, { status: 404 })
       }),
     )
     render(<App />)
 
-    await user.type(screen.getByLabelText("文字描述"), "湯包")
+    await user.type(screen.getByLabelText("文字描述"), "不確定")
     await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
 
-    expect(await screen.findByText(/此次分析結果的主要食材或說明不足/)).toBeInTheDocument()
+    expect(
+      await screen.findByText("目前資訊不足，請至少提供餐點名稱、圖片或連結。"),
+    ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "加入餐點資料集" })).not.toBeInTheDocument()
   })
 
@@ -478,6 +487,107 @@ describe("App", () => {
     const analysis = await screen.findByLabelText("AI 分析結果")
     expect(within(analysis).getByText("雞胸肉健康餐")).toBeInTheDocument()
     expect(within(analysis).getByText(/黑米飯/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "加入餐點資料集" })).toBeInTheDocument()
+  })
+
+  test("allows packaged dessert image guess with limited ingredient warning", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/analyze/image"))
+          return jsonResponse({
+            id: "ice-cream-guess",
+            mealName: "杜老爺冰品",
+            mealType: "冰品 / 甜點",
+            estimatedCalories: 260,
+            estimatedProtein: 4,
+            tags: ["冰品", "甜點", "高糖"],
+            mainIngredients: [],
+            allergens: ["乳製品"],
+            recommendationReason: "系統根據使用者提供的品牌或圖片線索推測此項目為杜老爺相關冰品。",
+            confidence: 0.35,
+            sourceType: "image",
+            createdAt: "2026-06-13T00:00:00+00:00",
+            isAiGenerated: true,
+            warningMessage:
+              "此結果為 AI 根據有限資訊推測，實際營養與成分仍需以包裝標示或店家資料為準。",
+          })
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "杜老爺")
+    await user.upload(
+      screen.getByLabelText("圖片上傳"),
+      new File(["fake"], "高級冰淇淋甜筒.jpg", { type: "image/jpeg" }),
+    )
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByText("AI 分析完成，可加入餐點資料集。")).toBeInTheDocument()
+    expect(
+      screen.queryByText("目前資訊不足，請至少提供餐點名稱、圖片或連結。"),
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText(/包裝標示或店家資料為準/).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: "加入餐點資料集" })).toBeInTheDocument()
+  })
+
+  test("allows brand-only packaged food guess without ingredient blocking", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        if (url.endsWith("/api/analyze/text"))
+          return jsonResponse({
+            id: "brand-only",
+            mealName: "杜老爺冰品",
+            mealType: "冰品 / 甜點",
+            estimatedCalories: 260,
+            estimatedProtein: 4,
+            tags: ["冰品", "甜點", "高糖"],
+            mainIngredients: [],
+            allergens: ["乳製品"],
+            recommendationReason: "系統根據使用者提供的品牌線索推測此項目為杜老爺相關冰品。",
+            confidence: 0.35,
+            sourceType: "text",
+            createdAt: "2026-06-13T00:00:00+00:00",
+            isAiGenerated: true,
+            warningMessage:
+              "此結果為 AI 根據有限資訊推測，實際營養與成分仍需以包裝標示或店家資料為準。",
+          })
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+    render(<App />)
+
+    await user.type(screen.getByLabelText("文字描述"), "杜老爺")
+    await user.click(screen.getByRole("button", { name: "AI 分析餐點" }))
+
+    expect(await screen.findByText("AI 分析完成，可加入餐點資料集。")).toBeInTheDocument()
+    expect(screen.getByText(/信心分數：35%（低 \/ low）/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "加入餐點資料集" })).toBeInTheDocument()
   })
 

@@ -37,6 +37,8 @@ export type Meal = {
   allergens: Allergen[]
   reason: string
   confidence?: number
+  warningMessage?: string
+  nutritionNote?: string
   sourceType?: MealSourceType
   createdAt?: string
   isAiGenerated?: boolean
