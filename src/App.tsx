@@ -16,8 +16,10 @@ import {
   analyzeUrl,
   fetchHealth,
   fetchMeals,
+  fetchNearbyPlaces,
   recommendMeals,
   type BackendHealth,
+  type NearbyPlace,
 } from "./api"
 import {
   allergens,
@@ -709,6 +711,33 @@ function CustomChoiceGroup({
   )
 }
 
+function NearbyPlaceCard({ place }: { place: NearbyPlace }) {
+  return (
+    <article className="meal-card nearby-place-card">
+      <div className="meal-card-header">
+        <div>
+          <p className="meal-type">{place.types.slice(0, 3).join(" / ") || "店家"}</p>
+          <h3>{place.name}</h3>
+        </div>
+        <span>
+          {place.distanceMeters !== null ? `${Math.round(place.distanceMeters)} m` : "距離未知"}
+        </span>
+      </div>
+      <p className="ingredients">
+        <strong>評分：</strong>
+        {place.rating ?? "尚無評分"}
+      </p>
+      <p className="ingredients">
+        <strong>地址：</strong>
+        {place.address || "未提供地址"}
+      </p>
+      <a className="utility-button map-button" href={place.mapUrl} target="_blank" rel="noreferrer">
+        開啟 Google Maps
+      </a>
+    </article>
+  )
+}
+
 export function App() {
   const [localUserMeals, setLocalUserMeals] = useState<Meal[]>(loadStoredMeals)
   const [mealDataset, setMealDataset] = useState<Meal[]>(() =>
@@ -747,6 +776,11 @@ export function App() {
   const [analysisError, setAnalysisError] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isRecommending, setIsRecommending] = useState(false)
+  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([])
+  const [nearbyQuery, setNearbyQuery] = useState("")
+  const [nearbyMessage, setNearbyMessage] = useState("")
+  const [nearbyError, setNearbyError] = useState("")
+  const [isLoadingNearby, setIsLoadingNearby] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -950,6 +984,10 @@ export function App() {
   const handleRecommend = async () => {
     setHasSearched(true)
     setIsRecommending(true)
+    setNearbyPlaces([])
+    setNearbyQuery("")
+    setNearbyMessage("")
+    setNearbyError("")
     let results = localRecommendation
     const effectiveExcludedAllergens = getEffectiveExcludedIngredients(
       selectedTags,
@@ -986,6 +1024,46 @@ export function App() {
         },
         ...records,
       ].slice(0, 5),
+    )
+  }
+
+  const handleFetchNearbyPlaces = () => {
+    const targetMeal = completeRecommendedMeals[0]
+    if (!targetMeal) {
+      setNearbyError("請先產生推薦結果，再查看附近類似店家。")
+      return
+    }
+    if (!navigator.geolocation) {
+      setNearbyMessage("啟用定位以查看附近類似店家")
+      return
+    }
+    setNearbyError("")
+    setNearbyMessage("")
+    setIsLoadingNearby(true)
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const response = await fetchNearbyPlaces({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            mealName: targetMeal.name,
+            mealType: targetMeal.type,
+            tags: targetMeal.tags,
+          })
+          setNearbyPlaces(response.places)
+          setNearbyQuery(response.query)
+          setNearbyMessage(response.places.length === 0 ? "附近沒有找到類似店家。" : "")
+        } catch {
+          setNearbyError("目前無法取得附近店家，請稍後再試")
+        } finally {
+          setIsLoadingNearby(false)
+        }
+      },
+      () => {
+        setIsLoadingNearby(false)
+        setNearbyMessage("啟用定位以查看附近類似店家")
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     )
   }
 
@@ -1278,6 +1356,32 @@ export function App() {
               <MealCard meal={meal} key={meal.id} />
             ))}
           </div>
+
+          {hasSearched && completeRecommendedMeals.length > 0 ? (
+            <div className="nearby-section" aria-label="附近類似店家">
+              <div className="section-heading compact-heading">
+                <div>
+                  <div className="eyebrow">Nearby Places</div>
+                  <h3>附近類似店家</h3>
+                </div>
+                <button
+                  className={`utility-button${isLoadingNearby ? " button-loading" : ""}`}
+                  onClick={handleFetchNearbyPlaces}
+                  disabled={isLoadingNearby}
+                >
+                  {isLoadingNearby ? "查詢中..." : "查看附近店家"}
+                </button>
+              </div>
+              {nearbyQuery ? <p className="helper-text">搜尋詞：{nearbyQuery}</p> : null}
+              {nearbyMessage ? <p className="status-message">{nearbyMessage}</p> : null}
+              {nearbyError ? <p className="error-message">{nearbyError}</p> : null}
+              <div className="meal-grid nearby-grid">
+                {nearbyPlaces.map((place) => (
+                  <NearbyPlaceCard place={place} key={`${place.name}-${place.address}`} />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="section" id="meal-dataset">

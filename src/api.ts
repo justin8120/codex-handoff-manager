@@ -55,6 +55,20 @@ export type RecommendPayload = {
   keyword: string | null
 }
 
+export type NearbyPlace = {
+  name: string
+  address: string
+  rating: number | null
+  distanceMeters: number | null
+  types: string[]
+  mapUrl: string
+}
+
+export type NearbyPlacesResponse = {
+  query: string
+  places: NearbyPlace[]
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: options?.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
@@ -178,6 +192,20 @@ export async function recommendMeals(payload: RecommendPayload): Promise<Meal[]>
     body: JSON.stringify(payload),
   })
   return response.map(backendMealToMeal)
+}
+
+export async function fetchNearbyPlaces(payload: {
+  lat: number
+  lng: number
+  mealName: string
+  mealType: string
+  tags: string[]
+  radiusMeters?: number
+}): Promise<NearbyPlacesResponse> {
+  return request<NearbyPlacesResponse>("/api/nearby-places", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
 }
 
 export function inferGoals(meal: FlexibleBackendMeal): MealGoal[] {

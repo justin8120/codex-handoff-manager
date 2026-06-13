@@ -493,6 +493,26 @@ fieldset {
   gap: 14px;
 }
 
+.nearby-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #dde5ef;
+}
+
+.compact-heading {
+  margin-bottom: 0;
+}
+
+.nearby-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.nearby-place-card .map-button {
+  width: fit-content;
+}
+
 .meal-card {
   display: grid;
   gap: 14px;

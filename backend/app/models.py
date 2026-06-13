@@ -50,3 +50,26 @@ class RecommendRequest(BaseModel):
     tags: list[str]
     excludedIngredients: list[str]
     keyword: str | None = None
+
+
+class NearbyPlacesRequest(BaseModel):
+    lat: float
+    lng: float
+    mealName: str
+    mealType: str
+    tags: list[str]
+    radiusMeters: int | None = None
+
+
+class NearbyPlace(BaseModel):
+    name: str
+    address: str
+    rating: float | None = None
+    distanceMeters: float | None = None
+    types: list[str]
+    mapUrl: str
+
+
+class NearbyPlacesResponse(BaseModel):
+    query: str
+    places: list[NearbyPlace]

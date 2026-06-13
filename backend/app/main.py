@@ -7,8 +7,17 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.models import MealAnalysisResult, MealUpsertResponse, RecommendRequest, TextAnalyzeRequest, UrlAnalyzeRequest
+from app.models import (
+    MealAnalysisResult,
+    MealUpsertResponse,
+    NearbyPlacesRequest,
+    NearbyPlacesResponse,
+    RecommendRequest,
+    TextAnalyzeRequest,
+    UrlAnalyzeRequest,
+)
 from app.services import openai_meal_analyzer
+from app.services.nearby_places import search_nearby_places
 from app.services.nutrition_enricher import normalize_and_enrich_result
 from app.storage.meals_store import add_meal, load_meals, recommend_meals
 
@@ -120,6 +129,18 @@ def recommend(request: RecommendRequest) -> list[MealAnalysisResult]:
         tags=request.tags,
         excluded_ingredients=request.excludedIngredients,
         keyword=request.keyword,
+    )
+
+
+@app.post("/api/nearby-places", response_model=NearbyPlacesResponse)
+async def nearby_places(request: NearbyPlacesRequest) -> NearbyPlacesResponse:
+    return await search_nearby_places(
+        lat=request.lat,
+        lng=request.lng,
+        meal_name=request.mealName,
+        meal_type=request.mealType,
+        tags=request.tags,
+        radius_meters=request.radiusMeters,
     )
 
 

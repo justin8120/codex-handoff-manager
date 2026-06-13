@@ -179,6 +179,21 @@ function mockOnlineApi() {
       if (body.excludedIngredients?.includes("海鮮")) return jsonResponse([backendMeals[0]])
       return jsonResponse([backendMeals[0]])
     }
+    if (url.endsWith("/api/nearby-places")) {
+      return jsonResponse({
+        query: "健康餐 雞胸肉餐盒",
+        places: [
+          {
+            name: "附近健康餐盒",
+            address: "台北市信義區測試路 1 號",
+            rating: 4.5,
+            distanceMeters: 320,
+            types: ["restaurant", "food"],
+            mapUrl: "https://maps.google.com/?cid=123",
+          },
+        ],
+      })
+    }
     return jsonResponse({ detail: "Not found" }, { status: 404 })
   })
 }
@@ -838,6 +853,61 @@ describe("App", () => {
       String(input).endsWith("/api/recommend"),
     )
     expect(JSON.parse(String(recommendCall?.[1]?.body)).tags).toContain("少油")
+  })
+
+  test("does not call nearby API when geolocation is denied", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: vi.fn((_success, error) => error()),
+      },
+    })
+    render(<App />)
+
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+    await user.click(await screen.findByRole("button", { name: "查看附近店家" }))
+
+    expect(await screen.findByText("啟用定位以查看附近類似店家")).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).endsWith("/api/nearby-places")),
+    ).toBe(false)
+  })
+
+  test("fetches nearby places with geolocation and displays place cards", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(mockOnlineApi())
+    vi.stubGlobal("fetch", fetchMock)
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition: vi.fn((success) =>
+          success({ coords: { latitude: 25.033, longitude: 121.5654 } }),
+        ),
+      },
+    })
+    render(<App />)
+
+    await user.click(screen.getByRole("button", { name: "搜尋 / 推薦" }))
+    await user.click(await screen.findByRole("button", { name: "查看附近店家" }))
+
+    expect(await screen.findByText("附近健康餐盒")).toBeInTheDocument()
+    expect(screen.getByText("搜尋詞：健康餐 雞胸肉餐盒")).toBeInTheDocument()
+    expect(screen.getByText("320 m")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "開啟 Google Maps" })).toHaveAttribute(
+      "href",
+      "https://maps.google.com/?cid=123",
+    )
+    const nearbyCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith("/api/nearby-places"),
+    )
+    expect(JSON.parse(String(nearbyCall?.[1]?.body))).toMatchObject({
+      lat: 25.033,
+      lng: 121.5654,
+      mealName: "茶葉蛋",
+    })
   })
 
   test("rejects blank and duplicate custom diet tags", async () => {

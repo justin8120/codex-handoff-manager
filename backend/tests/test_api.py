@@ -15,6 +15,7 @@ from app.services.nutrition_enricher import (
     validate_analysis_result,
 )
 from app.services.openai_meal_analyzer import classify_text_hint
+from app.services.nearby_places import build_nearby_query
 from app.services.web_food_verifier import rerank_food_candidates
 from app.services import web_food_verifier
 from app.storage import meals_store
@@ -57,6 +58,37 @@ def test_normalize_meal_name_maps_romanized_names():
     assert normalize_meal_name("Tendon") == "\u5929\u4e3c"
     assert normalize_meal_name("Curry Rice") == "\u5496\u54e9\u98ef"
     assert normalize_meal_name("Fried Rice") == "\u7092\u98ef"
+
+
+def test_nearby_places_query_builder():
+    assert (
+        build_nearby_query("\u96de\u80f8\u8089\u5065\u5eb7\u9910", "\u5065\u5eb7\u9910", ["\u9ad8\u86cb\u767d"])
+        == "\u5065\u5eb7\u9910 \u96de\u80f8\u8089\u9910\u76d2"
+    )
+    assert (
+        build_nearby_query("\u675c\u8001\u723a\u51b0\u54c1", "\u51b0\u54c1 / \u751c\u9ede", ["\u9ad8\u7cd6"])
+        == "\u4fbf\u5229\u5546\u5e97 \u8d85\u5e02 \u51b0\u54c1"
+    )
+    assert build_nearby_query("\u51b0\u6dc7\u6dcb", "\u51b0\u54c1", ["\u9ad8\u7cd6"]) == "\u51b0\u54c1 \u751c\u9ede \u51b0\u6dc7\u6dcb"
+
+
+def test_nearby_places_requires_google_api_key(monkeypatch):
+    monkeypatch.setenv("NEARBY_PROVIDER", "google")
+    monkeypatch.delenv("GOOGLE_MAPS_API_KEY", raising=False)
+
+    response = client.post(
+        "/api/nearby-places",
+        json={
+            "lat": 25.033,
+            "lng": 121.5654,
+            "mealName": "\u96de\u80f8\u8089\u5065\u5eb7\u9910",
+            "mealType": "\u5065\u5eb7\u9910",
+            "tags": ["\u9ad8\u86cb\u767d"],
+        },
+    )
+
+    assert response.status_code == 503
+    assert "GOOGLE_MAPS_API_KEY" in response.json()["detail"]
 
 
 def test_classify_text_hint_treats_single_peanut_as_weak_hint():
