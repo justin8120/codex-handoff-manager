@@ -180,6 +180,32 @@ function saveStoredList(key: string, values: string[]) {
   window.localStorage.setItem(key, JSON.stringify(values))
 }
 
+function sleep(delayMs: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs))
+}
+
+async function fetchWithRetry<T>(
+  request: () => Promise<T>,
+  options: { retries?: number; delayMs?: number; onRetry?: () => void } = {},
+) {
+  const retries = options.retries ?? 4
+  const baseDelay = options.delayMs ?? 1500
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await request()
+    } catch (error) {
+      lastError = error
+      if (attempt === retries) break
+      options.onRetry?.()
+      await sleep(baseDelay * (attempt + 1))
+    }
+  }
+
+  throw lastError
+}
+
 function validateCustomItem(value: string, existing: string[], label: string) {
   const trimmed = value.trim()
   if (!trimmed) return { value: trimmed, error: `${label}不可為空。` }
@@ -420,6 +446,9 @@ export function App() {
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null)
   const [backendError, setBackendError] = useState("")
   const [isOfflineMode, setIsOfflineMode] = useState(false)
+  const [backendLoading, setBackendLoading] = useState(true)
+  const [mealDatasetLoading, setMealDatasetLoading] = useState(true)
+  const [backendRetrying, setBackendRetrying] = useState(false)
   const [goal, setGoal] = useState<HealthGoal>(defaultGoal)
   const [selectedTags, setSelectedTags] = useState<DietTag[]>([])
   const [excludedAllergens, setExcludedAllergens] = useState<Allergen[]>([])
@@ -447,21 +476,50 @@ export function App() {
   const [isRecommending, setIsRecommending] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
     async function loadBackendData() {
+      setBackendLoading(true)
+      setMealDatasetLoading(true)
+      setBackendRetrying(false)
+      const retryDelay = import.meta.env.MODE === "test" ? 10 : 1500
+      const markRetrying = () => {
+        if (!cancelled) setBackendRetrying(true)
+      }
+
       try {
-        const [health, backendMeals] = await Promise.all([fetchHealth(), fetchMeals()])
+        const [health, backendMeals] = await Promise.all([
+          fetchWithRetry(fetchHealth, { retries: 3, delayMs: retryDelay, onRetry: markRetrying }),
+          fetchWithRetry(fetchMeals, { retries: 3, delayMs: retryDelay, onRetry: markRetrying }),
+        ])
+        if (cancelled) return
         setBackendHealth(health)
         setMealDataset(backendMeals)
         setRecommendedMeals(backendMeals)
         setBackendError("")
         setIsOfflineMode(false)
       } catch {
-        setBackendError("AI 後端尚未啟動，請先啟動 FastAPI server。")
+        if (cancelled) return
+        setBackendHealth(null)
+        setMealDataset(meals)
+        setRecommendedMeals(meals)
+        setBackendError(
+          "目前無法連線後端，系統暫時使用離線示範資料。部分 AI 分析與資料集可能不是最新版本。",
+        )
         setIsOfflineMode(true)
+      } finally {
+        if (!cancelled) {
+          setBackendLoading(false)
+          setMealDatasetLoading(false)
+          setBackendRetrying(false)
+        }
       }
     }
 
     void loadBackendData()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const completeRecommendedMeals = useMemo(
@@ -469,8 +527,19 @@ export function App() {
     [recommendedMeals],
   )
   const displayedMeals = hasSearched ? completeRecommendedMeals : mealDataset
-  const aiStatusLabel = backendError ? "未連線" : "已連線"
-  const apiStatusLabel = backendHealth?.aiConfigured ? "已設定" : "未設定"
+  const aiStatusLabel = backendLoading ? "連線中" : backendError ? "未連線" : "已連線"
+  const apiStatusLabel = backendLoading
+    ? "檢查中"
+    : backendError
+      ? "暫時無法連線"
+      : backendHealth?.aiConfigured
+        ? "已設定"
+        : "未設定"
+  const mealDatasetCountLabel = mealDatasetLoading
+    ? "載入中"
+    : isOfflineMode
+      ? `${mealDataset.length}（離線示範）`
+      : `${mealDataset.length}`
   const allDietTags = useMemo(() => [...dietTags, ...customDietTags], [customDietTags])
   const allAvoidIngredients = useMemo(
     () => [...allergens, ...customAvoidIngredients],
@@ -681,7 +750,7 @@ export function App() {
 
         <section className="metrics" aria-label="餐點資料摘要">
           <div>
-            <span>{mealDataset.length}</span>
+            <span>{mealDatasetCountLabel}</span>
             <p>資料集餐點</p>
           </div>
           <div>
@@ -694,9 +763,15 @@ export function App() {
           </div>
         </section>
 
-        {backendError ? (
-          <p className="status-message">{backendError} 目前使用離線展示資料。</p>
+        {backendLoading ? (
+          <p className="status-message">
+            {backendRetrying
+              ? "正在重新連線後端服務，免費主機首次啟動可能需要較久時間..."
+              : "正在連線後端服務，免費主機首次啟動可能需要較久時間..."}
+          </p>
         ) : null}
+
+        {!backendLoading && backendError ? <p className="status-message">{backendError}</p> : null}
 
         <section className="section" id="ai-analysis">
           <div className="section-heading">
@@ -917,9 +992,11 @@ export function App() {
           </div>
 
           <div className="meal-data-grid" aria-label="餐點資料集清單">
-            {mealDataset.map((meal) => (
-              <MealCard meal={meal} key={meal.id} />
-            ))}
+            {mealDatasetLoading ? (
+              <p className="empty-state">餐點資料載入中...</p>
+            ) : (
+              mealDataset.map((meal) => <MealCard meal={meal} key={meal.id} />)
+            )}
           </div>
         </section>
 

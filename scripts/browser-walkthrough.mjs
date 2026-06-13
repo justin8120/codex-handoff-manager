@@ -265,19 +265,28 @@ async function main() {
     const loaded = client.once("Page.loadEventFired")
     await client.send("Page.navigate", { url: appUrl }, sessionId)
     await loaded
-    await delay(3_000)
 
     const desktop = await evaluate(
       client,
       sessionId,
-      `(() => ({
-        title: document.querySelector("h1")?.textContent,
-        nav: [...document.querySelectorAll("nav a")].map((a) => a.textContent.trim()),
-        metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim()),
-        aiHeading: document.querySelector("#ai-analysis h2")?.textContent,
-        body: document.body.textContent,
-        mealDataset: [...document.querySelectorAll("#meal-dataset .meal-card h3")].map((heading) => heading.textContent.trim())
-      }))()`,
+      `new Promise((resolve) => {
+        const read = () => ({
+          title: document.querySelector("h1")?.textContent,
+          nav: [...document.querySelectorAll("nav a")].map((a) => a.textContent.trim()),
+          metrics: [...document.querySelectorAll(".metrics span")].map((span) => span.textContent.trim()),
+          aiHeading: document.querySelector("#ai-analysis h2")?.textContent,
+          body: document.body.textContent,
+          mealDataset: [...document.querySelectorAll("#meal-dataset .meal-card h3")].map((heading) => heading.textContent.trim())
+        });
+        const started = Date.now();
+        const timer = setInterval(() => {
+          const state = read();
+          if (state.metrics[0] !== "載入中" || Date.now() - started > 20000) {
+            clearInterval(timer);
+            resolve(state);
+          }
+        }, 250);
+      })`,
     )
     assert(desktop.title === "智慧飲食建議系統", "Hero title is not readable")
     assert(
@@ -286,14 +295,26 @@ async function main() {
       ),
       "Navigation labels are incomplete",
     )
-    assert(desktop.metrics.join(",") === "9,5,4", "Metrics did not match expected meal data")
-    assert(desktop.aiHeading === "AI 餐點分析與資料集擴充", "AI analysis section was not rendered")
     assert(
-      desktop.body.includes("AI 後端尚未啟動") && desktop.body.includes("離線展示資料"),
-      "Offline status was not shown",
+      desktop.metrics[0] !== "9",
+      `Metrics showed raw fallback count: ${desktop.metrics.join(",")}`,
     )
+    assert(desktop.metrics[0] !== "載入中", "Metrics remained stuck in loading state")
+    assert(desktop.aiHeading === "AI 餐點分析與資料集擴充", "AI analysis section was not rendered")
+    const hasBackendData = Number.parseInt(desktop.metrics[0], 10) > 9
+    const hasOfflineState = desktop.metrics[0].includes("離線示範")
     assert(
-      desktop.mealDataset.length === 9 && desktop.mealDataset.includes("茶葉蛋"),
+      hasBackendData || hasOfflineState,
+      `Backend state was unclear: ${desktop.metrics.join(",")}`,
+    )
+    if (hasOfflineState) {
+      assert(
+        desktop.body.includes("目前無法連線後端") && desktop.body.includes("離線示範資料"),
+        "Offline status was not shown",
+      )
+    }
+    assert(
+      desktop.mealDataset.length >= 9 && desktop.mealDataset.includes("茶葉蛋"),
       "Meal dataset did not render",
     )
     if (shouldCaptureScreenshots) await captureScreenshot(client, sessionId, "desktop.png")

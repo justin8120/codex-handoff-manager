@@ -201,11 +201,82 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText(/Provider：gemini/)).toBeInTheDocument())
   })
 
+  test("shows backend and dataset loading state on initial render", () => {
+    render(<App />)
+
+    expect(screen.getByText(/AI 後端狀態：連線中/)).toBeInTheDocument()
+    expect(screen.getByText(/API 狀態：檢查中/)).toBeInTheDocument()
+    expect(screen.getByText("載入中")).toBeInTheDocument()
+    expect(screen.getByText(/正在連線後端服務/)).toBeInTheDocument()
+    expect(screen.queryByText("資料集餐點：9")).not.toBeInTheDocument()
+    expect(screen.queryByText(/API 狀態：未設定/)).not.toBeInTheDocument()
+  })
+
   test("loads meal dataset from the backend", async () => {
     render(<App />)
 
     const mealDataset = await screen.findByLabelText("餐點資料集清單")
     expect(within(mealDataset).getByText("茶葉蛋")).toBeInTheDocument()
+  })
+
+  test("retries health check and eventually shows connected backend status", async () => {
+    let healthCalls = 0
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          healthCalls += 1
+          if (healthCalls === 1) throw new Error("cold start")
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) return jsonResponse(backendMeals)
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText(/AI 後端狀態：已連線/)).toBeInTheDocument())
+    expect(screen.getByText(/API 狀態：已設定/)).toBeInTheDocument()
+    expect(healthCalls).toBe(2)
+  })
+
+  test("retries meal dataset loading and eventually shows backend meal count", async () => {
+    let mealCalls = 0
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith("/api/health")) {
+          return jsonResponse({
+            status: "ok",
+            aiProvider: "gemini",
+            aiConfigured: true,
+            model: "gemini-2.5-flash-lite",
+            fallbackEnabled: true,
+          })
+        }
+        if (url.endsWith("/api/meals")) {
+          mealCalls += 1
+          if (mealCalls === 1) throw new Error("cold start")
+          return jsonResponse(backendMeals)
+        }
+        return jsonResponse({ detail: "Not found" }, { status: 404 })
+      }),
+    )
+
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText(String(backendMeals.length))).toBeInTheDocument())
+    expect(screen.queryByText("載入中")).not.toBeInTheDocument()
+    expect(mealCalls).toBe(2)
   })
 
   test("runs mocked AI text analysis and adds the result to the dataset", async () => {
@@ -377,8 +448,9 @@ describe("App", () => {
     )
     render(<App />)
 
-    expect(await screen.findByText(/AI 後端尚未啟動/)).toBeInTheDocument()
-    expect(screen.getByText(/目前使用離線展示資料/)).toBeInTheDocument()
+    expect(await screen.findByText(/目前無法連線後端/)).toBeInTheDocument()
+    expect(screen.getByText(/9（離線示範）/)).toBeInTheDocument()
+    expect(screen.getByText(/API 狀態：暫時無法連線/)).toBeInTheDocument()
   })
 
   test("adds custom diet tag and sends it in recommendation payload", async () => {
@@ -514,7 +586,7 @@ describe("App", () => {
     )
     render(<App />)
 
-    await screen.findByText(/目前使用離線展示資料/)
+    await screen.findByText(/目前無法連線後端/)
     await user.type(screen.getByLabelText("自訂禁忌食材"), "肉類")
     await user.click(screen.getByRole("button", { name: "新增禁忌食材" }))
     await user.click(screen.getByLabelText("肉類"))
